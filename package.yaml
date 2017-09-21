@@ -1,0 +1,39 @@
+name: mailsift
+version: '0.1.0.0'
+category: Acme
+author: Rob Berry
+maintainer: example@example.com
+copyright: ! 'Copyright: (c) 2017 Rob Berry'
+license: BSD3
+github: rob-b/mailsift
+tested-with: GHC==7.10.2
+extra-source-files:
+- README.md
+library:
+  source-dirs: src
+  ghc-options: -Wall -Wincomplete-uni-patterns -Wincomplete-record-updates -Wmissing-import-lists
+  exposed-modules:
+  - Mailsift
+  dependencies:
+  - base >=4.7 && <5
+  - Spock
+  - text
+  - monad-logger
+  - persistent
+  - persistent-sqlite
+  - persistent-template
+  - aeson
+  - bytestring
+  - wai
+  - wai-extra
+executables:
+  mailsift:
+    main: Main.hs
+    source-dirs: app
+    ghc-options:
+    - -threaded
+    - -rtsopts
+    - -with-rtsopts=-N
+    dependencies:
+    - base
+    - mailsift
