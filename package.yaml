@@ -26,6 +26,7 @@ library:
   - bytestring
   - wai
   - wai-extra
+  - http-types
 executables:
   mailsift:
     main: Main.hs
