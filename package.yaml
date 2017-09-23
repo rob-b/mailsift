@@ -11,22 +11,26 @@ extra-source-files:
 - README.md
 library:
   source-dirs: src
-  ghc-options: -Wall -Wincomplete-uni-patterns -Wincomplete-record-updates -Wmissing-import-lists
-  exposed-modules:
-  - Mailsift
+  ghc-options:
+  - -Wall
+  - -Wincomplete-uni-patterns
+  - -Wincomplete-record-updates
+  - -Wmissing-import-lists
   dependencies:
   - base >=4.7 && <5
   - Spock
-  - text
+  - aeson
+  - bytestring
+  - digestive-functors
+  - digestive-functors-aeson
+  - http-types
   - monad-logger
   - persistent
   - persistent-sqlite
   - persistent-template
-  - aeson
-  - bytestring
+  - text
   - wai
   - wai-extra
-  - http-types
 executables:
   mailsift:
     main: Main.hs

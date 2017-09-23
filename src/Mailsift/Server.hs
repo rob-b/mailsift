@@ -13,11 +13,10 @@ import           Mailsift.Config           (Environment (Development),
                                             lookupSetting, setLogger)
 import           Mailsift.Entities         ()
 import           Network.HTTP.Types.Status (status422)
-import           Network.Wai               (Request)
 
 import           Network.Wai.Parse         (lbsBackEnd, parseRequestBody)
 import           Web.Spock                 (HasSpock, SpockAction, SpockConn,
-                                            SpockM, body, get, json, jsonBody,
+                                            SpockM, get, json,
                                             middleware, post, request, root,
                                             runQuery, runSpock, setStatus,
                                             spock, text)
@@ -25,8 +24,7 @@ import           Web.Spock.Config          (PoolOrConn (PCPool),
                                             defaultSpockCfg)
 
 import           Data.Aeson                (FromJSON, KeyValue, ToJSON,
-                                            Value (Object), Value, eitherDecode, encode,
-                                            parseJSON, toJSON, (.:), (.=))
+                                            Value (Object), parseJSON, toJSON, (.:), (.=))
 import           Data.Aeson.Types          (camelTo2, defaultOptions,
                                             fieldLabelModifier, genericToJSON,
                                             withObject)
@@ -34,14 +32,24 @@ import           Data.Aeson.Types          (camelTo2, defaultOptions,
 import           GHC.Exts                  (fromList)
 
 import qualified Data.ByteString           as B
-import qualified Data.Text as T
 import           Data.Text                 (Text)
+import qualified Data.Text                 as T
 import           Data.Text.Encoding        (decodeUtf8)
 import           GHC.Generics              (Generic)
+import           Text.Digestive            (Form, check)
+import           Text.Digestive.Aeson      (digestJSON, jsonErrors)
+import qualified Text.Digestive.Form       as D
 
 type Api = SpockM SqlBackend () () ()
 
 type ApiAction a = SpockAction SqlBackend () () a
+
+
+emailForm :: Monad m => Form Text m Email
+emailForm =
+  Email <$> "to" D..: nonEmptyText <*> "from" D..: nonEmptyText <*> "subject" D..: nonEmptyText
+
+  where nonEmptyText = check "Cannot be empty." (not . T.null) (D.text Nothing)
 
 
 data Email = Email
@@ -76,14 +84,12 @@ app = do
     req <- request
     (params, _) <- liftIO $ parseRequestBody lbsBackEnd req
     let dynJson = Object . fromList $ map expand params
-    let dynValue = encode dynJson
-    let xo = eitherDecode dynValue :: Either String Email
-    email <- case xo of
-      Left err -> do
+    r <- digestJSON emailForm dynJson
+    case r of
+      (view, Nothing) -> do
         setStatus status422
-        json (Object $ fromList ["error" .= T.pack err])
-      Right val -> return val
-    json email
+        json (Object $ fromList ["errors" .= jsonErrors view])
+      (_, Just email) -> json email
 
 
 expand :: (KeyValue kv) => (B.ByteString, B.ByteString) -> kv
