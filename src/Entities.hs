@@ -13,6 +13,7 @@ module Entities where
 import           Data.Text           (Text)
 import           Database.Persist.TH (mkMigrate, mkPersist, persistLowerCase,
                                       share, sqlSettings)
+import Data.Time.Clock (UTCTime)
 
 
 share
@@ -23,5 +24,6 @@ Mail json
   to Text
   subject Text
   body Text
+  created UTCTime sql=updated_at
   deriving Show
 |]

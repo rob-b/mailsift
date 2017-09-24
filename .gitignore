@@ -4,4 +4,4 @@
 /.stack-work/
 bin
 mailsift.cabal
-api.db
+api.db*
