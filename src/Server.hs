@@ -50,7 +50,7 @@ emailForm =
     <$> "from" D..: check "Not a valid email address." checkEmail (D.text Nothing)
     <*> "to" D..: check "Not a valid email address." checkEmail (D.text Nothing)
     <*> "subject" D..: nonEmptyText
-    <*> "body" D..: nonEmptyText
+    <*> "body" D..: D.text Nothing
     <*> monadic (pure <$> liftIO getCurrentTime)
   where
     nonEmptyText = check "Cannot be empty." (not . T.null) (D.text Nothing)
