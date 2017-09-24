@@ -1,70 +1,60 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE GADTs #-}
+{-# LANGUAGE FlexibleContexts #-}
 
 module Server where
 
 
-import           Config                    (Environment (Development),
-                                            lookupSetting, setLogger)
-import           Control.Monad.IO.Class    (liftIO)
-import           Control.Monad.Logger      (LoggingT, runStdoutLoggingT)
-import           Database.Persist.Sqlite   (SqlBackend, SqlPersistT,
-                                            createSqlitePool, runSqlConn)
-import           Entities                  ()
-import           Network.HTTP.Types.Status (status422)
+import           Config                      (Environment (Development),
+                                              lookupSetting, setLogger)
+import           Control.Monad.IO.Class      (MonadIO, liftIO)
+import           Control.Monad.Logger        (LoggingT, runStdoutLoggingT)
+import           Control.Monad.Trans.Control (MonadBaseControl)
+import           Database.Persist.Sql        (ConnectionPool)
+import           Database.Persist.Sqlite     (SqlBackend, SqlPersistT,
+                                              createSqlitePool, runMigration,
+                                              runSqlConn, runSqlPool)
+import           Entities
+import           Network.HTTP.Types.Status   (status422)
 
-import           Network.Wai.Parse         (lbsBackEnd, parseRequestBody)
-import           Web.Spock                 (HasSpock, SpockAction, SpockConn,
-                                            SpockM, get, json, middleware, post,
-                                            request, root, runQuery, runSpock,
-                                            setStatus, spock, text)
-import           Web.Spock.Config          (PoolOrConn (PCPool),
-                                            defaultSpockCfg)
+import           Network.Wai.Parse           (lbsBackEnd, parseRequestBody)
+import           Web.Spock                   (HasSpock, SpockAction, SpockConn,
+                                              SpockM, get, json, middleware,
+                                              post, request, root, runQuery,
+                                              runSpock, setStatus, spock, text)
+import           Web.Spock.Config            (PoolOrConn (PCPool),
+                                              defaultSpockCfg)
 
-import           Data.Aeson                (FromJSON, KeyValue, ToJSON,
-                                            Value (Object), parseJSON, toJSON,
-                                            (.:), (.=))
-import           Data.Aeson.Types          (camelTo2, defaultOptions,
-                                            fieldLabelModifier, genericToJSON,
-                                            withObject)
+import           Data.Aeson                  (FromJSON, KeyValue, ToJSON,
+                                              Value (Object), parseJSON, toJSON,
+                                              (.:), (.=))
+import           Data.Aeson.Types            (camelTo2, defaultOptions,
+                                              fieldLabelModifier, genericToJSON,
+                                              withObject)
 
-import           GHC.Exts                  (fromList)
+import           GHC.Exts                    (fromList)
 
-import qualified Data.ByteString           as B
-import           Data.Text                 (Text)
-import qualified Data.Text                 as T
-import           Data.Text.Encoding        (decodeUtf8)
-import           GHC.Generics              (Generic)
-import           Text.Digestive            (Form, check)
-import           Text.Digestive.Aeson      (digestJSON, jsonErrors)
-import qualified Text.Digestive.Form       as D
+import qualified Data.ByteString             as B
+import           Data.Text                   (Text)
+import qualified Data.Text                   as T
+import           Data.Text.Encoding          (decodeUtf8)
+import           GHC.Generics                (Generic)
+import           Text.Digestive              (Form, check)
+import           Text.Digestive.Aeson        (digestJSON, jsonErrors)
+import qualified Text.Digestive.Form         as D
 
 type Api = SpockM SqlBackend () () ()
 
 type ApiAction a = SpockAction SqlBackend () () a
 
 
-emailForm :: Monad m => Form Text m Email
+emailForm :: Monad m => Form Text m Mail
 emailForm =
-  Email <$> "to" D..: nonEmptyText <*> "from" D..: nonEmptyText <*> "subject" D..: nonEmptyText
-
-  where nonEmptyText = check "Cannot be empty." (not . T.null) (D.text Nothing)
-
-
-data Email = Email
-  { emailTo :: Text
-  , emailFrom :: Text
-  , emailSubject :: Text
-  } deriving (Show, Generic)
-
-
-instance FromJSON Email where
-  parseJSON = withObject "Email" $ \o -> Email <$> o .: "to" <*> o .: "from" <*> o .: "subject"
-
-
-instance ToJSON Email where
-  toJSON = genericToJSON defaultOptions { fieldLabelModifier = drop 6 . camelTo2 '_' }
+  Mail <$> "from" D..: nonEmptyText <*> "to" D..: nonEmptyText <*> "subject" D..: nonEmptyText <*>
+  "body" D..: nonEmptyText
+  where
+    nonEmptyText = check "Cannot be empty." (not . T.null) (D.text Nothing)
 
 
 run :: IO ()
@@ -72,9 +62,18 @@ run = do
   env <- lookupSetting "ENV" Development
   port <- lookupSetting "PORT" 8080
   let logger = setLogger env
-  pool <- runStdoutLoggingT $ createSqlitePool "api.db" 5
+  pool <- mkPool
   spockCfg <- defaultSpockCfg () (PCPool pool) ()
+  migrate pool
   runSpock port (spock spockCfg $ middleware logger >> app)
+
+
+mkPool :: (MonadIO m, MonadBaseControl IO m) => m ConnectionPool
+mkPool = runStdoutLoggingT $ createSqlitePool "api.db" 5
+
+
+migrate :: (MonadBaseControl IO m, MonadIO m) => ConnectionPool -> m ()
+migrate pool = runStdoutLoggingT $ runSqlPool (runMigration migrateAll) pool
 
 
 app :: Api

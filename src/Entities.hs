@@ -10,14 +10,18 @@
 
 module Entities where
 
-import Database.Persist ()
-import Database.Persist.TH (persistLowerCase, mkMigrate, mkPersist, share, sqlSettings)
-import Data.Text (Text)
+import           Data.Text           (Text)
+import           Database.Persist.TH (mkMigrate, mkPersist, persistLowerCase,
+                                      share, sqlSettings)
 
-share [mkPersist sqlSettings, mkMigrate "migrateAll"] [persistLowerCase|
-Mail
+
+share
+  [mkPersist sqlSettings, mkMigrate "migrateAll"]
+  [persistLowerCase|
+Mail json
   from Text
   to Text
   subject Text
+  body Text
   deriving Show
 |]
