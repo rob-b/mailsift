@@ -4,11 +4,12 @@
 
 module Server where
 
-
 import           Config                      (confAppLogger, confPool, confPort,
                                               getConfig)
+import           Control.Monad.Except
 import           Control.Monad.IO.Class      (MonadIO, liftIO)
-import           Control.Monad.Logger        (LoggingT, runStdoutLoggingT)
+import           Control.Monad.Logger        (LoggingT, logErrorN,
+                                              runStdoutLoggingT)
 import           Control.Monad.Trans.Control (MonadBaseControl)
 import           Database.Persist.Postgresql (SqlBackend, SqlPersistT,
                                               runMigration, runSqlConn,
@@ -65,18 +66,33 @@ app = do
 
 parseEmailHook :: ApiAction a
 parseEmailHook = do
-    req <- request
-    (params, _) <- liftIO $ parseRequestBody lbsBackEnd req
-    let dynJson = Object . fromList $ map paramToKeyValue params
-    r <- digestJSON emailForm dynJson
-    case r of
-      (view, Nothing) -> do
-        setStatus status422
-        json (Object $ fromList ["error" .= jsonErrors view])
-      (_, Just email) -> do
-        _ <- runSQL $ insert email
-        setStatus status201
-        json email
+      req <- request
+      (params, _) <- liftIO $ parseRequestBody lbsBackEnd req
+      res <- liftIO . runStdoutLoggingT . runExceptT $ other params
+      case res of
+        Left (ErrorJson ej) -> do
+          setStatus status422
+          json (Object $ fromList ["error" .= ej])
+        Right email -> do
+          _ <- runSQL $ insert email
+          setStatus status201
+          json email
+
+
+data ErrorJson = ErrorJson Value
+
+
+other :: [(B.ByteString, B.ByteString)] -> ExceptT ErrorJson (LoggingT IO) Mail
+other params = do
+  let dynJson = Object . fromList $ map paramToKeyValue params
+  r <- digestJSON emailForm dynJson
+  case r of
+    (view, Nothing) -> do
+      let err = jsonErrors view
+      logErrorN . T.pack . show $ err
+      throwError . ErrorJson $ err
+    (_, Just email) -> do
+      pure email
 
 
 paramToKeyValue :: (KeyValue kv) => (B.ByteString, B.ByteString) -> kv
@@ -88,9 +104,7 @@ migrate pool = runStdoutLoggingT $ runSqlPool (runMigration migrateAll) pool
 
 
 -- | Execute a given sql command
-runSQL
-  :: (HasSpock m, SpockConn m ~ SqlBackend)
-  => SqlPersistT (LoggingT IO) a -> m a
+runSQL :: (HasSpock m, SpockConn m ~ SqlBackend) => SqlPersistT (LoggingT IO) a -> m a
 runSQL action = runQuery $ \conn -> runStdoutLoggingT $ runSqlConn action conn
 
 

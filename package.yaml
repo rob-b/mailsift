@@ -35,6 +35,7 @@ library:
   - wai-extra
   - time
   - heroku
+  - mtl
 executables:
   mailsift:
     main: Main.hs

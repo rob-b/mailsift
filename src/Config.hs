@@ -1,18 +1,18 @@
 {-# LANGUAGE OverloadedStrings #-}
 module Config where
 
-import Text.Read (readMaybe)
-import System.Environment (lookupEnv)
-import Network.Wai (Middleware)
-import Network.Wai.Middleware.RequestLogger
-       (logStdout, logStdoutDev)
-import Data.Maybe (fromMaybe)
-import           Database.Persist.Sql        (ConnectionPool)
-import Web.Heroku (parseDatabaseUrl)
-import qualified Data.Text as T
-import           Data.Text.Encoding          (encodeUtf8)
-import qualified Database.Persist.Postgresql as DB
-import           Control.Monad.Logger        (runStdoutLoggingT, runNoLoggingT)
+import           Control.Monad.Logger                 (runNoLoggingT,
+                                                       runStdoutLoggingT)
+import           Data.Maybe                           (fromMaybe)
+import qualified Data.Text                            as T
+import           Data.Text.Encoding                   (encodeUtf8)
+import qualified Database.Persist.Postgresql          as DB
+import           Database.Persist.Sql                 (ConnectionPool)
+import           Network.Wai                          (Middleware)
+import           Network.Wai.Middleware.RequestLogger (logStdout, logStdoutDev)
+import           System.Environment                   (lookupEnv)
+import           Text.Read                            (readMaybe)
+import           Web.Heroku                           (parseDatabaseUrl)
 
 
 data Config = Config
