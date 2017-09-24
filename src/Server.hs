@@ -2,29 +2,29 @@
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE GADTs #-}
 
-module Mailsift.Server where
+module Server where
 
 
+import           Config                    (Environment (Development),
+                                            lookupSetting, setLogger)
 import           Control.Monad.IO.Class    (liftIO)
 import           Control.Monad.Logger      (LoggingT, runStdoutLoggingT)
 import           Database.Persist.Sqlite   (SqlBackend, SqlPersistT,
                                             createSqlitePool, runSqlConn)
-import           Mailsift.Config           (Environment (Development),
-                                            lookupSetting, setLogger)
-import           Mailsift.Entities         ()
+import           Entities                  ()
 import           Network.HTTP.Types.Status (status422)
 
 import           Network.Wai.Parse         (lbsBackEnd, parseRequestBody)
 import           Web.Spock                 (HasSpock, SpockAction, SpockConn,
-                                            SpockM, get, json,
-                                            middleware, post, request, root,
-                                            runQuery, runSpock, setStatus,
-                                            spock, text)
+                                            SpockM, get, json, middleware, post,
+                                            request, root, runQuery, runSpock,
+                                            setStatus, spock, text)
 import           Web.Spock.Config          (PoolOrConn (PCPool),
                                             defaultSpockCfg)
 
 import           Data.Aeson                (FromJSON, KeyValue, ToJSON,
-                                            Value (Object), parseJSON, toJSON, (.:), (.=))
+                                            Value (Object), parseJSON, toJSON,
+                                            (.:), (.=))
 import           Data.Aeson.Types          (camelTo2, defaultOptions,
                                             fieldLabelModifier, genericToJSON,
                                             withObject)

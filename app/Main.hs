@@ -1,6 +1,6 @@
 module Main where
 
-import Mailsift (run)
+import Server (run)
 
 
 main :: IO ()

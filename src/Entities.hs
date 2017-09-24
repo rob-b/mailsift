@@ -8,7 +8,7 @@
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeFamilies #-}
 
-module Mailsift.Entities where
+module Entities where
 
 import Database.Persist ()
 import Database.Persist.TH (persistLowerCase, mkMigrate, mkPersist, share, sqlSettings)

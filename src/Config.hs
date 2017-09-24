@@ -1,4 +1,4 @@
-module Mailsift.Config where
+module Config where
 
 import Text.Read (readMaybe)
 import System.Environment (lookupEnv)
