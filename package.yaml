@@ -28,11 +28,13 @@ library:
   - monad-control
   - persistent
   - persistent-sqlite
+  - persistent-postgresql
   - persistent-template
   - text
   - wai
   - wai-extra
   - time
+  - heroku
 executables:
   mailsift:
     main: Main.hs

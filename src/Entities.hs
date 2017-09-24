@@ -24,6 +24,6 @@ Mail json
   to Text
   subject Text
   body Text
-  created UTCTime sql=updated_at
+  created UTCTime sql=created
   deriving Show
 |]
