@@ -13,7 +13,6 @@ import           Network.Wai.Middleware.RequestLogger (logStdout, logStdoutDev)
 import           System.Environment                   (lookupEnv)
 import           Text.Read                            (readMaybe)
 import           Web.Heroku                           (parseDatabaseUrl)
-import Debug.Trace
 
 
 data Config = Config
@@ -24,6 +23,7 @@ data Config = Config
   }
 
 
+getConfig :: IO Config
 getConfig = do
   env <- lookupSettingSafe "ENV" Development
   port <- lookupSettingSafe "PORT" 8080
