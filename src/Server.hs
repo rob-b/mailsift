@@ -66,24 +66,24 @@ app = do
 
 parseEmailHook :: ApiAction a
 parseEmailHook = do
-      req <- request
-      (params, _) <- liftIO $ parseRequestBody lbsBackEnd req
-      res <- liftIO . runStdoutLoggingT . runExceptT $ other params
-      case res of
-        Left (ErrorJson ej) -> do
-          setStatus status422
-          json (Object $ fromList ["error" .= ej])
-        Right email -> do
-          _ <- runSQL $ insert email
-          setStatus status201
-          json email
+  req <- request
+  (params, _) <- liftIO $ parseRequestBody lbsBackEnd req
+  res <- liftIO . runStdoutLoggingT . runExceptT $ validateParams params
+  case res of
+    Left (ErrorJson ej) -> do
+      setStatus status422
+      json (Object $ fromList ["error" .= ej])
+    Right email -> do
+      _ <- runSQL $ insert email
+      setStatus status201
+      json email
 
 
 data ErrorJson = ErrorJson Value
 
 
-other :: [(B.ByteString, B.ByteString)] -> ExceptT ErrorJson (LoggingT IO) Mail
-other params = do
+validateParams :: [(B.ByteString, B.ByteString)] -> ExceptT ErrorJson (LoggingT IO) Mail
+validateParams params = do
   let dynJson = Object . fromList $ map paramToKeyValue params
   r <- digestJSON emailForm dynJson
   case r of
