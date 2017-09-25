@@ -8,7 +8,7 @@ import           Config                      (confAppLogger, confPool, confPort,
                                               getConfig)
 import           Control.Monad.Except
 import           Control.Monad.IO.Class      (MonadIO, liftIO)
-import           Control.Monad.Logger        (LoggingT, logErrorN,
+import           Control.Monad.Logger        (LoggingT, logErrorN, logInfoN,
                                               runStdoutLoggingT)
 import           Control.Monad.Trans.Control (MonadBaseControl)
 import           Database.Persist.Postgresql (SqlBackend, SqlPersistT,
@@ -50,7 +50,7 @@ emailForm =
     <$> "from" D..: check "Not a valid email address." checkEmail (D.text Nothing)
     <*> "to" D..: check "Not a valid email address." checkEmail (D.text Nothing)
     <*> "subject" D..: nonEmptyText
-    <*> "body" D..: D.text Nothing
+    <*> "text" D..: D.text Nothing
     <*> monadic (pure <$> liftIO getCurrentTime)
   where
     nonEmptyText = check "Cannot be empty." (not . T.null) (D.text Nothing)
@@ -86,6 +86,7 @@ validateParams :: [(B.ByteString, B.ByteString)] -> ExceptT ErrorJson (LoggingT 
 validateParams params = do
   let dynJson = Object . fromList $ map paramToKeyValue params
   r <- digestJSON emailForm dynJson
+  logInfoN $ T.pack (show params)
   case r of
     (view, Nothing) -> do
       let err = jsonErrors view
