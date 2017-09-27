@@ -3,7 +3,6 @@ resolver: lts-8.2
 packages:
 - .
 extra-deps:
-  - time-1.6.0.1
   - digestive-functors-0.8.2.0
   - digestive-functors-aeson-1.1.22
   - heroku-0.1.2.3
