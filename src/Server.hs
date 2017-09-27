@@ -6,7 +6,7 @@ module Server where
 
 import           Config                      (confAppLogger, confPool, confPort,
                                               getConfig)
-import           Control.Monad.Except
+import           Control.Monad.Except        (ExceptT, runExceptT, throwError)
 import           Control.Monad.IO.Class      (MonadIO, liftIO)
 import           Control.Monad.Logger        (LoggingT, logErrorN, logInfoN,
                                               runStdoutLoggingT)
@@ -20,9 +20,10 @@ import           Network.HTTP.Types.Status   (status201, status422)
 
 import           Network.Wai.Parse           (lbsBackEnd, parseRequestBody)
 import           Web.Spock                   (HasSpock, SpockAction, SpockConn,
-                                              SpockM, get, json, middleware,
-                                              post, request, root, runQuery,
-                                              runSpock, setStatus, spock, text)
+                                              SpockM, files, get, json,
+                                              middleware, post, request, root,
+                                              runQuery, runSpock, setStatus,
+                                              spock, text)
 import           Web.Spock.Config            (PoolOrConn (PCPool),
                                               defaultSpockCfg)
 
@@ -75,6 +76,7 @@ parseEmailHook = do
       json (Object $ fromList ["error" .= ej])
     Right email -> do
       _ <- runSQL $ insert email
+      filesMap <- files
       setStatus status201
       json email
 
@@ -92,8 +94,7 @@ validateParams params = do
       let err = jsonErrors view
       logErrorN . T.pack . show $ err
       throwError . ErrorJson $ err
-    (_, Just email) -> do
-      pure email
+    (_, Just email) -> pure email
 
 
 paramToKeyValue :: (KeyValue kv) => (B.ByteString, B.ByteString) -> kv
