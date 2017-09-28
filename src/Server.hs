@@ -6,19 +6,25 @@ module Server where
 
 import           Config                      (confAppLogger, confPool, confPort,
                                               getConfig)
-import           Control.Monad.Except
+import           Control.Monad               (forM_)
+import           Control.Monad.Except        (ExceptT, runExceptT, throwError)
 import           Control.Monad.IO.Class      (MonadIO, liftIO)
 import           Control.Monad.Logger        (LoggingT, logErrorN, logInfoN,
                                               runStdoutLoggingT)
 import           Control.Monad.Trans.Control (MonadBaseControl)
+import           Data.Monoid                 ((<>))
+import           Database.Persist            (Key)
 import           Database.Persist.Postgresql (SqlBackend, SqlPersistT,
-                                              runMigration, runSqlConn,
-                                              runSqlPool)
+                                              fromSqlKey, runMigration,
+                                              runSqlConn, runSqlPool)
 import           Database.Persist.Sql        (ConnectionPool, insert)
 import           Entities                    (Mail (Mail), migrateAll)
 import           Network.HTTP.Types.Status   (status201, status422)
 
-import           Network.Wai.Parse           (lbsBackEnd, parseRequestBody)
+import           Network.Wai.Parse           (FileInfo,
+                                              defaultParseRequestBodyOptions,
+                                              fileContent, fileName, lbsBackEnd,
+                                              parseRequestBodyEx)
 import           Web.Spock                   (HasSpock, SpockAction, SpockConn,
                                               SpockM, get, json, middleware,
                                               post, request, root, runQuery,
@@ -30,6 +36,7 @@ import           Data.Aeson                  (KeyValue, Value (Object), (.=))
 import           GHC.Exts                    (fromList)
 
 import qualified Data.ByteString             as B
+import           Data.ByteString.Lazy        (ByteString)
 import           Data.Maybe                  (isJust)
 import           Data.Text                   (Text)
 import qualified Data.Text                   as T
@@ -38,6 +45,8 @@ import           Data.Time.Clock             (getCurrentTime)
 import           Text.Digestive              (Form, check, monadic)
 import           Text.Digestive.Aeson        (digestJSON, jsonErrors)
 import qualified Text.Digestive.Form         as D
+import           Upload                      (upload)
+
 
 type Api = SpockM SqlBackend () () ()
 
@@ -67,19 +76,32 @@ app = do
 parseEmailHook :: ApiAction a
 parseEmailHook = do
   req <- request
-  (params, _) <- liftIO $ parseRequestBody lbsBackEnd req
+  (params, filesMap) <- liftIO $ parseRequestBodyEx defaultParseRequestBodyOptions lbsBackEnd req
   res <- liftIO . runStdoutLoggingT . runExceptT $ validateParams params
   case res of
     Left (ErrorJson ej) -> do
       setStatus status422
       json (Object $ fromList ["error" .= ej])
     Right email -> do
-      _ <- runSQL $ insert email
+      emailKey <- runSQL $ insert email
+      _ <- runStdoutLoggingT $ uploadFiles emailKey filesMap
       setStatus status201
       json email
 
 
-data ErrorJson = ErrorJson Value
+newtype ErrorJson = ErrorJson Value
+
+
+uploadFiles
+  :: (MonadIO m, Foldable t1)
+  => Key Mail -> t1 (t, FileInfo ByteString) -> m ()
+uploadFiles key filemap = do
+  forM_ filemap $ \(_, fInfo) -> do
+    _ <- upload (mkname key fInfo) (fileContent fInfo)
+    pure ()
+  pure ()
+  where
+    mkname key' fInfo' = T.pack (show (fromSqlKey key')) <> "/" <> decodeUtf8 (fileName fInfo')
 
 
 validateParams :: [(B.ByteString, B.ByteString)] -> ExceptT ErrorJson (LoggingT IO) Mail
@@ -92,8 +114,7 @@ validateParams params = do
       let err = jsonErrors view
       logErrorN . T.pack . show $ err
       throwError . ErrorJson $ err
-    (_, Just email) -> do
-      pure email
+    (_, Just email) -> pure email
 
 
 paramToKeyValue :: (KeyValue kv) => (B.ByteString, B.ByteString) -> kv

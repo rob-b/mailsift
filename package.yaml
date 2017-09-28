@@ -36,6 +36,9 @@ library:
   - time
   - heroku
   - mtl
+  - amazonka
+  - amazonka-s3
+  - lens
 executables:
   mailsift:
     main: Main.hs
