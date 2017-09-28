@@ -2,7 +2,7 @@
 
 module Upload where
 
-import           Control.Lens
+import           Control.Lens ((<&>), set)
 import           Control.Monad           (void)
 import           Control.Monad.IO.Class  (MonadIO, liftIO)
 import           Control.Monad.Trans.AWS (runAWST, send)
@@ -12,9 +12,8 @@ import           Network.AWS             (Credentials (Discover),
                                           LogLevel (Debug), chunkedFile,
                                           envLogger, envRegion, newEnv,
                                           newLogger, runResourceT)
-import           Network.AWS.Data        (toText)
-import           Network.AWS.S3
-import           System.IO
+import           Network.AWS.S3 (Region(Ireland), putObject)
+import           System.IO (stdout)
 
 
 example :: IO ()
@@ -31,13 +30,13 @@ example = do
     env <- newEnv Discover <&> set envLogger lgr . set envRegion Ireland
 
     -- The payload (and hash) for the S3 object is retrieved from a FilePath:
-    body <- chunkedFile 128 "local/path/to/object-payload"
+    body <- chunkedFile 128000 "/Users/rob/Desktop/hello.png"
 
     -- We now run the AWS computation with the overriden logger, performing the
     -- PutObject request. envRegion or within can be used to set the
     -- remote AWS Region:
     runResourceT . runAWST env $ do
-        void . send $ putObject "bucket-name" "key" body
+        void . send $ putObject "zd-attachments" "first.png" body
         say "Successfully Uploaded: "
 
 
