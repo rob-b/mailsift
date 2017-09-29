@@ -39,6 +39,7 @@ library:
   - amazonka
   - amazonka-s3
   - lens
+  - async
 executables:
   mailsift:
     main: Main.hs

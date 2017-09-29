@@ -6,7 +6,7 @@ module Server where
 
 import           Config                      (confAppLogger, confPool, confPort,
                                               getConfig)
-import           Control.Monad               (forM_)
+import           Control.Concurrent.Async    (mapConcurrently_)
 import           Control.Monad.Except        (ExceptT, runExceptT, throwError)
 import           Control.Monad.IO.Class      (MonadIO, liftIO)
 import           Control.Monad.Logger        (LoggingT, logErrorN, logInfoN,
@@ -84,7 +84,7 @@ parseEmailHook = do
       json (Object $ fromList ["error" .= ej])
     Right email -> do
       emailKey <- runSQL $ insert email
-      _ <- runStdoutLoggingT $ uploadFiles emailKey filesMap
+      _ <- liftIO $ uploadFiles emailKey filesMap
       setStatus status201
       json email
 
@@ -93,13 +93,13 @@ newtype ErrorJson = ErrorJson Value
 
 
 uploadFiles
-  :: (MonadIO m, Foldable t1)
-  => Key Mail -> t1 (t, FileInfo ByteString) -> m ()
-uploadFiles key filemap = do
-  forM_ filemap $ \(_, fInfo) -> do
-    _ <- upload (mkname key fInfo) (fileContent fInfo)
-    pure ()
-  pure ()
+  :: (Foldable t1)
+  => Key Mail -> t1 (t, FileInfo ByteString) -> IO ()
+uploadFiles key = mapConcurrently_ (uploadFile key)
+
+
+uploadFile :: (MonadIO m) => Key Mail -> (t, FileInfo ByteString) -> m ()
+uploadFile key (_, fInfo) = upload (mkname key fInfo) (fileContent fInfo)
   where
     mkname key' fInfo' = T.pack (show (fromSqlKey key')) <> "/" <> decodeUtf8 (fileName fInfo')
 
