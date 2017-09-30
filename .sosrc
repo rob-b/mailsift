@@ -1,0 +1,8 @@
+- patterns:
+  - ^stack.yaml$
+  - ^package.yaml$
+  - .*\.hs$
+  commands:
+    - stack install
+    - mailsift
+
