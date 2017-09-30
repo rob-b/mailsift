@@ -13,26 +13,30 @@ import           Control.Monad.Logger        (LoggingT, logErrorN, logInfoN,
                                               runStdoutLoggingT)
 import           Control.Monad.Trans.Control (MonadBaseControl)
 import           Data.Monoid                 ((<>))
-import           Database.Persist            (Key)
+import           Database.Persist            (Key, SelectOpt (Desc), selectList)
 import           Database.Persist.Postgresql (SqlBackend, SqlPersistT,
                                               fromSqlKey, runMigration,
                                               runSqlConn, runSqlPool)
 import           Database.Persist.Sql        (ConnectionPool, insert)
 import           Entities                    (Mail (Mail), migrateAll)
+import qualified Entities                    as E
+import           Network.HTTP.Types          (Status (Status))
 import           Network.HTTP.Types.Status   (status201, status422)
 
 import           Network.Wai.Parse           (FileInfo,
                                               defaultParseRequestBodyOptions,
                                               fileContent, fileName, lbsBackEnd,
                                               parseRequestBodyEx)
-import           Web.Spock                   (HasSpock, SpockAction, SpockConn,
-                                              SpockM, get, json, middleware,
-                                              post, request, root, runQuery,
-                                              runSpock, setStatus, spock, text)
-import           Web.Spock.Config            (PoolOrConn (PCPool),
-                                              defaultSpockCfg)
+import           Web.Spock                   (ActionCtxT, HasSpock, SpockAction,
+                                              SpockConn, SpockM, get, json,
+                                              middleware, post, request, root,
+                                              runQuery, runSpock, setStatus,
+                                              spock)
+import           Web.Spock.Config            (PoolOrConn (PCPool), SpockCfg,
+                                              defaultSpockCfg, spc_errorHandler)
 
-import           Data.Aeson                  (KeyValue, Value (Object), (.=))
+import           Data.Aeson                  (KeyValue, ToJSON, Value (Object),
+                                              object, (.=))
 import           GHC.Exts                    (fromList)
 
 import qualified Data.ByteString             as B
@@ -42,6 +46,7 @@ import           Data.Text                   (Text)
 import qualified Data.Text                   as T
 import           Data.Text.Encoding          (decodeUtf8)
 import           Data.Time.Clock             (getCurrentTime)
+import qualified Data.Vector                 as V
 import           Text.Digestive              (Form, check, monadic)
 import           Text.Digestive.Aeson        (digestJSON, jsonErrors)
 import qualified Text.Digestive.Form         as D
@@ -51,6 +56,19 @@ import           Upload                      (upload)
 type Api = SpockM SqlBackend () () ()
 
 type ApiAction a = SpockAction SqlBackend () () a
+
+
+errorHandler :: Status -> ActionCtxT () IO ()
+errorHandler status = json $ prepareError status
+  where
+    prepareError :: Status -> Value
+    prepareError (Status code msg) =
+      let inner = V.singleton $ object ["status" .= code, "detail" .= decodeUtf8 msg]
+      in object ["errors" .= inner]
+
+
+mailsiftConfig :: SpockCfg conn sess st -> SpockCfg conn sess st
+mailsiftConfig cfg = cfg { spc_errorHandler = errorHandler }
 
 
 emailForm :: (MonadIO m) => Form Text m Mail
@@ -67,10 +85,24 @@ emailForm =
     checkEmail = isJust . T.find (== '@')
 
 
+-- | Routing
 app :: Api
 app = do
-  get root $ text "hiya"
+  get root emailList
   post "parse" parseEmailHook
+
+
+-- | Handlers
+rootResource :: ApiAction a
+rootResource =
+  let static = "hassle..." :: Text
+  in json . dataWrapper $ object ["attributes" .= static]
+
+
+emailList :: ApiAction a
+emailList = do
+  res <- runSQL $ selectList [] [Desc E.MailCreated]
+  json $ dataWrapper res
 
 
 parseEmailHook :: ApiAction a
@@ -87,6 +119,11 @@ parseEmailHook = do
       _ <- liftIO $ uploadFiles emailKey filesMap
       setStatus status201
       json email
+
+
+-- | Json helpers
+dataWrapper :: ToJSON v => v -> Value
+dataWrapper a = object ["data" .= a]
 
 
 newtype ErrorJson = ErrorJson Value
@@ -137,6 +174,6 @@ run = do
   let pool = confPool conf
   let port = confPort conf
   let logger = confAppLogger conf
-  spockCfg <- defaultSpockCfg () (PCPool pool) ()
+  spockCfg <- mailsiftConfig <$> defaultSpockCfg () (PCPool pool) ()
   migrate pool
   runSpock port (spock spockCfg $ middleware logger >> app)
