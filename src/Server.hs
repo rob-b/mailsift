@@ -13,7 +13,8 @@ import           Control.Monad.Logger        (LoggingT, logErrorN, logInfoN,
                                               runStdoutLoggingT)
 import           Control.Monad.Trans.Control (MonadBaseControl)
 import           Data.Monoid                 ((<>))
-import           Database.Persist            (Key, SelectOpt (Desc), selectList)
+import           Database.Persist            (Filter (Filter), Key, PersistFilter (BackendSpecificFilter),
+                                              SelectOpt (Desc), selectList)
 import           Database.Persist.Postgresql (SqlBackend, SqlPersistT,
                                               fromSqlKey, runMigration,
                                               runSqlConn, runSqlPool)
@@ -29,9 +30,9 @@ import           Network.Wai.Parse           (FileInfo,
                                               parseRequestBodyEx)
 import           Web.Spock                   (ActionCtxT, HasSpock, SpockAction,
                                               SpockConn, SpockM, get, json,
-                                              middleware, post, request, root,
-                                              runQuery, runSpock, setStatus,
-                                              spock)
+                                              middleware, paramsGet, post,
+                                              request, root, runQuery, runSpock,
+                                              setStatus, spock)
 import           Web.Spock.Config            (PoolOrConn (PCPool), SpockCfg,
                                               defaultSpockCfg, spc_errorHandler)
 
@@ -41,7 +42,8 @@ import           GHC.Exts                    (fromList)
 
 import qualified Data.ByteString             as B
 import           Data.ByteString.Lazy        (ByteString)
-import           Data.Maybe                  (isJust)
+import           Data.Maybe                  (isJust, mapMaybe)
+import           Data.String                 (IsString)
 import           Data.Text                   (Text)
 import qualified Data.Text                   as T
 import           Data.Text.Encoding          (decodeUtf8)
@@ -101,7 +103,8 @@ rootResource =
 
 emailList :: ApiAction a
 emailList = do
-  res <- runSQL $ selectList [] [Desc E.MailCreated]
+  params <- paramsGet
+  res <- runSQL $ selectList (selectFilter params) [Desc E.MailCreated]
   json $ dataWrapper res
 
 
@@ -177,3 +180,19 @@ run = do
   spockCfg <- mailsiftConfig <$> defaultSpockCfg () (PCPool pool) ()
   migrate pool
   runSpock port (spock spockCfg $ middleware logger >> app)
+
+
+selectFilter :: (IsString a, Eq a) => [(a, Text)] -> [Filter Mail]
+selectFilter = mapMaybe checkF
+
+
+checkF :: (Eq a, IsString a) => (a, Text) -> Maybe (Filter Mail)
+checkF (key, value)
+  | key == "subject" = Just (like E.MailSubject value)
+  | key == "from" = Just (like E.MailFrom value)
+  | key == "to" = Just (like E.MailTo value)
+  | otherwise = Nothing
+
+
+like :: E.EntityField record Text -> Text -> Filter record
+like field val = Filter field (Left $ T.concat ["%", val, "%"]) (BackendSpecificFilter "ilike")
