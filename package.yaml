@@ -41,6 +41,7 @@ library:
   - lens
   - async
   - vector
+  - hvect
 executables:
   mailsift:
     main: Main.hs

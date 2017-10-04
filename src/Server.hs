@@ -1,6 +1,8 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE TypeOperators #-}
+{-# LANGUAGE DataKinds #-}
 
 module Server where
 
@@ -12,6 +14,7 @@ import           Control.Monad.IO.Class      (MonadIO, liftIO)
 import           Control.Monad.Logger        (LoggingT, logErrorN, logInfoN,
                                               runStdoutLoggingT)
 import           Control.Monad.Trans.Control (MonadBaseControl)
+import           Data.HVect (HVect(HNil, (:&:)), ListContains )
 import           Data.Monoid                 ((<>))
 import           Database.Persist            (Filter (Filter), Key, PersistFilter (BackendSpecificFilter),
                                               SelectOpt (Desc), selectList)
@@ -22,17 +25,18 @@ import           Database.Persist.Sql        (ConnectionPool, insert)
 import           Entities                    (Mail (Mail), migrateAll)
 import qualified Entities                    as E
 import           Network.HTTP.Types          (Status (Status))
-import           Network.HTTP.Types.Status   (status201, status422)
+import           Network.HTTP.Types.Status   (status201, status401, status422)
 
 import           Network.Wai.Parse           (FileInfo,
                                               defaultParseRequestBodyOptions,
                                               fileContent, fileName, lbsBackEnd,
                                               parseRequestBodyEx)
-import           Web.Spock                   (ActionCtxT, HasSpock, SpockAction,
-                                              SpockConn, SpockM, get, json,
+import           Web.Spock                   (ActionCtxT, HasSpock,
+                                              SpockActionCtx, SpockConn, SpockM,
+                                              get, getContext, header, json,
                                               middleware, paramsGet, post,
-                                              request, root, runQuery, runSpock,
-                                              setStatus, spock)
+                                              prehook, request, root, runQuery,
+                                              runSpock, setStatus, spock)
 import           Web.Spock.Config            (PoolOrConn (PCPool), SpockCfg,
                                               defaultSpockCfg, spc_errorHandler)
 
@@ -57,7 +61,8 @@ import           Upload                      (upload)
 
 type Api = SpockM SqlBackend () () ()
 
-type ApiAction a = SpockAction SqlBackend () () a
+type ApiAction a = SpockActionCtx (HVect '[]) SqlBackend () () a
+type AuthedApiAction ctx a = SpockActionCtx ctx SqlBackend () () a
 
 
 errorHandler :: Status -> ActionCtxT () IO ()
@@ -89,9 +94,36 @@ emailForm =
 
 -- | Routing
 app :: Api
-app = do
-  get root emailList
-  post "parse" parseEmailHook
+app =
+  prehook initHook $ do
+    post "parse" parseEmailHook
+    prehook authHook $ get root emailList
+
+
+data User = User
+
+
+initHook :: (Monad m) => ActionCtxT () m (HVect '[])
+initHook = return HNil
+
+
+authHook
+  :: (MonadIO m)
+  => ActionCtxT (HVect xs) m (HVect (User ': xs))
+authHook = do
+  oldCtx <- getContext
+  auth <- header "Authorization"
+  if authCheck auth
+    then return (User :&: oldCtx)
+    else do
+      setStatus status401
+      let ej = "sorry. no" :: Value
+      json (Object $ fromList ["error" .= ej])
+
+
+authCheck :: (IsString a, Eq a) => Maybe a -> Bool
+authCheck Nothing = False
+authCheck (Just x) = x == "Bearer 'mlP4f-/li),^)"
 
 
 -- | Handlers
@@ -101,10 +133,10 @@ rootResource =
   in json . dataWrapper $ object ["attributes" .= static]
 
 
-emailList :: ApiAction a
+emailList :: ListContains n User xs => AuthedApiAction (HVect xs) a
 emailList = do
   params <- paramsGet
-  res <- runSQL $ selectList (selectFilter params) [Desc E.MailCreated]
+  res <- runSQL $ selectList (selectFilter params) [Desc E.MailId]
   json $ dataWrapper res
 
 
