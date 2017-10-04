@@ -19,6 +19,7 @@ data Config = Config
   { confEnv :: Environment
   , confPort :: Int
   , confPool :: ConnectionPool
+  , confToken :: String
   , confAppLogger ::  Middleware
   }
 
@@ -28,13 +29,17 @@ getConfig = do
   env <- lookupSettingSafe "ENV" Development
   port <- lookupSettingSafe "PORT" 8080
   dbUrl <- lookupSetting "DATABASE_URL" "postgres://mailsift:@localhost:5432/mailsift"
+  token <- lookupSetting "AUTH_TOKEN" "it would be better to just break here"
   let logger = setLogger env
   let s = createConnectionString (parseDatabaseUrl dbUrl)
-  pool <- case env of
-    Production -> runStdoutLoggingT (DB.createPostgresqlPool s 4)
-    Development -> runStdoutLoggingT (DB.createPostgresqlPool s 1)
-    Test -> runNoLoggingT (DB.createPostgresqlPool s 1)
-  pure Config { confEnv = env, confPort = port, confPool = pool, confAppLogger = logger }
+  pool <-
+    case env of
+      Production -> runStdoutLoggingT (DB.createPostgresqlPool s 4)
+      Development -> runStdoutLoggingT (DB.createPostgresqlPool s 1)
+      Test -> runNoLoggingT (DB.createPostgresqlPool s 1)
+  pure
+    Config
+    {confEnv = env, confPort = port, confPool = pool, confAppLogger = logger, confToken = token}
 
 
 createConnectionString :: [(T.Text, T.Text)] -> DB.ConnectionString

@@ -7,14 +7,14 @@
 module Server where
 
 import           Config                      (confAppLogger, confPool, confPort,
-                                              getConfig)
+                                              confToken, getConfig)
 import           Control.Concurrent.Async    (mapConcurrently_)
 import           Control.Monad.Except        (ExceptT, runExceptT, throwError)
 import           Control.Monad.IO.Class      (MonadIO, liftIO)
 import           Control.Monad.Logger        (LoggingT, logErrorN, logInfoN,
                                               runStdoutLoggingT)
 import           Control.Monad.Trans.Control (MonadBaseControl)
-import           Data.HVect (HVect(HNil, (:&:)), ListContains )
+import           Data.HVect                  (HVect (HNil, (:&:)), ListContains)
 import           Data.Monoid                 ((<>))
 import           Database.Persist            (Filter (Filter), Key, PersistFilter (BackendSpecificFilter),
                                               SelectOpt (Desc), selectList)
@@ -33,8 +33,8 @@ import           Network.Wai.Parse           (FileInfo,
                                               parseRequestBodyEx)
 import           Web.Spock                   (ActionCtxT, HasSpock,
                                               SpockActionCtx, SpockConn, SpockM,
-                                              get, getContext, header, json,
-                                              middleware, paramsGet, post,
+                                              get, getContext, getState, header,
+                                              json, middleware, paramsGet, post,
                                               prehook, request, root, runQuery,
                                               runSpock, setStatus, spock)
 import           Web.Spock.Config            (PoolOrConn (PCPool), SpockCfg,
@@ -59,10 +59,9 @@ import qualified Text.Digestive.Form         as D
 import           Upload                      (upload)
 
 
-type Api = SpockM SqlBackend () () ()
-
-type ApiAction a = SpockActionCtx (HVect '[]) SqlBackend () () a
-type AuthedApiAction ctx a = SpockActionCtx ctx SqlBackend () () a
+type Api = SpockM SqlBackend () String ()
+type ApiAction a = SpockActionCtx (HVect '[]) SqlBackend () String a
+type AuthedApiAction ctx a = SpockActionCtx ctx SqlBackend () String a
 
 
 errorHandler :: Status -> ActionCtxT () IO ()
@@ -107,13 +106,12 @@ initHook :: (Monad m) => ActionCtxT () m (HVect '[])
 initHook = return HNil
 
 
-authHook
-  :: (MonadIO m)
-  => ActionCtxT (HVect xs) m (HVect (User ': xs))
+authHook :: AuthedApiAction (HVect xs) (HVect (User ': xs))
 authHook = do
   oldCtx <- getContext
+  state <- getState
   auth <- header "Authorization"
-  if authCheck auth
+  if authCheck auth state
     then return (User :&: oldCtx)
     else do
       setStatus status401
@@ -121,18 +119,12 @@ authHook = do
       json (Object $ fromList ["error" .= ej])
 
 
-authCheck :: (IsString a, Eq a) => Maybe a -> Bool
-authCheck Nothing = False
-authCheck (Just x) = x == "Bearer 'mlP4f-/li),^)"
+authCheck :: Maybe Text -> String -> Bool
+authCheck Nothing _ = False
+authCheck (Just x) y = x == "Bearer " <> T.pack y
 
 
 -- | Handlers
-rootResource :: ApiAction a
-rootResource =
-  let static = "hassle..." :: Text
-  in json . dataWrapper $ object ["attributes" .= static]
-
-
 emailList :: ListContains n User xs => AuthedApiAction (HVect xs) a
 emailList = do
   params <- paramsGet
@@ -209,7 +201,8 @@ run = do
   let pool = confPool conf
   let port = confPort conf
   let logger = confAppLogger conf
-  spockCfg <- mailsiftConfig <$> defaultSpockCfg () (PCPool pool) ()
+  let token = confToken conf
+  spockCfg <- mailsiftConfig <$> defaultSpockCfg () (PCPool pool) token
   migrate pool
   runSpock port (spock spockCfg $ middleware logger >> app)
 
