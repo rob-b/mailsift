@@ -103,7 +103,7 @@ app =
 data User = User
 
 
-initHook :: (Monad m) => ActionCtxT () m (HVect '[])
+initHook :: AuthedApiAction () (HVect '[])
 initHook = return HNil
 
 
