@@ -26,4 +26,12 @@ Mail json
   body Text
   created UTCTime sql=created
   deriving Show
+
+Attachment json
+  filename Text
+  mimetype Text
+  url Text
+  mail MailId
+  created UTCTime
+  deriving Show
 |]
