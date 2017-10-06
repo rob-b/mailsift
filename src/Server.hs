@@ -8,12 +8,13 @@ module Server where
 
 import           Config                      (confAppLogger, confPool, confPort,
                                               confToken, getConfig)
-import           Control.Concurrent.Async    (mapConcurrently_)
+import           Control.Concurrent          (forkIO)
 import           Control.Monad.Except        (ExceptT, runExceptT, throwError)
 import           Control.Monad.IO.Class      (MonadIO, liftIO)
 import           Control.Monad.Logger        (LoggingT, logErrorN, logInfoN,
                                               runStdoutLoggingT)
 import           Control.Monad.Trans.Control (MonadBaseControl)
+import Control.Monad (mapM_)
 import           Data.HVect                  (HVect (HNil, (:&:)), ListContains)
 import           Data.Monoid                 ((<>))
 import           Database.Persist            (Filter (Filter), Key, PersistFilter (BackendSpecificFilter),
@@ -159,11 +160,13 @@ newtype ErrorJson = ErrorJson Value
 uploadFiles
   :: (Foldable t1)
   => Key Mail -> t1 (t, FileInfo ByteString) -> IO ()
-uploadFiles key = mapConcurrently_ (uploadFile key)
+uploadFiles key = mapM_ (uploadFile key)
 
 
 uploadFile :: (MonadIO m) => Key Mail -> (t, FileInfo ByteString) -> m ()
-uploadFile key (_, fInfo) = upload (mkname key fInfo) (fileContent fInfo)
+uploadFile key (_, fInfo) = do
+  _ <- liftIO $ forkIO $ upload (mkname key fInfo) (fileContent fInfo)
+  pure ()
   where
     mkname key' fInfo' = T.pack (show (fromSqlKey key')) <> "/" <> decodeUtf8 (fileName fInfo')
 

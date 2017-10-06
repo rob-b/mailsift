@@ -39,7 +39,6 @@ library:
   - amazonka
   - amazonka-s3
   - lens
-  - async
   - vector
   - hvect
 executables:
