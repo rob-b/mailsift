@@ -1,13 +1,16 @@
 {-# LANGUAGE OverloadedStrings #-}
 module Config where
 
-import           Control.Monad.Logger                 (runNoLoggingT,
-                                                       runStdoutLoggingT)
+import           Control.Lens                         (set, (<&>) )
+import           Control.Monad.Logger                 (runNoLoggingT, runStdoutLoggingT)
 import           Data.Maybe                           (fromMaybe)
 import qualified Data.Text                            as T
 import           Data.Text.Encoding                   (encodeUtf8)
 import qualified Database.Persist.Postgresql          as DB
 import           Database.Persist.Sql                 (ConnectionPool)
+import           Network.AWS                          (Region (Ireland))
+import           Network.AWS.Auth                     (Credentials (Discover))
+import           Network.AWS.Env                      (Env, envRegion, newEnv)
 import           Network.Wai                          (Middleware)
 import           Network.Wai.Middleware.RequestLogger (logStdout, logStdoutDev)
 import           System.Environment                   (lookupEnv)
@@ -15,23 +18,35 @@ import           Text.Read                            (readMaybe)
 import           Web.Heroku                           (parseDatabaseUrl)
 
 
+data AppState = AppState
+  { appStateAWSEnv :: Env
+  , appStateToken :: String
+  }
+
+
 data Config = Config
   { confEnv :: Environment
   , confPort :: Int
   , confPool :: ConnectionPool
-  , confToken :: String
   , confAppLogger ::  Middleware
+  , confAppState :: AppState
   }
+
+
+getAWSEnv :: IO Env
+getAWSEnv = newEnv Discover <&> set envRegion Ireland
 
 
 getConfig :: IO Config
 getConfig = do
+  awsEnv <- getAWSEnv
   env <- lookupSettingSafe "ENV" Development
   port <- lookupSettingSafe "PORT" 8080
   dbUrl <- lookupSetting "DATABASE_URL" "postgres://mailsift:@localhost:5432/mailsift"
   token <- lookupSetting "AUTH_TOKEN" "it would be better to just break here"
   let logger = setLogger env
   let s = createConnectionString (parseDatabaseUrl dbUrl)
+  let appState = AppState {appStateToken = token, appStateAWSEnv = awsEnv}
   pool <-
     case env of
       Production -> runStdoutLoggingT (DB.createPostgresqlPool s 4)
@@ -39,7 +54,12 @@ getConfig = do
       Test -> runNoLoggingT (DB.createPostgresqlPool s 1)
   pure
     Config
-    {confEnv = env, confPort = port, confPool = pool, confAppLogger = logger, confToken = token}
+    { confEnv = env
+    , confPort = port
+    , confPool = pool
+    , confAppLogger = logger
+    , confAppState = appState
+    }
 
 
 createConnectionString :: [(T.Text, T.Text)] -> DB.ConnectionString

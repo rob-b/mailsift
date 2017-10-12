@@ -1,20 +1,30 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE GADTs #-}
+{-# LANGUAGE TypeOperators #-}
 
 module Upload where
 
-import           Control.Lens            ((^.), set, (<&>))
-import           Control.Monad           (void)
-import           Control.Monad.IO.Class  (MonadIO, liftIO)
-import           Control.Monad.Trans (lift)
-import           Control.Monad.Trans.AWS (runAWST, send)
-import           Data.ByteString.Lazy    (ByteString)
-import           Data.Text               (Text)
-import           Data.Time (getCurrentTime)
-import           Network.AWS (Credentials(Discover), envRegion, newEnv, runResourceT, toBody, envAuth)
-import           Network.AWS.Presign (presignURL)
-import Network.AWS.S3 (ObjectKey(ObjectKey), Region(Ireland), putObject, poBucket, getObject, BucketName, poKey)
-import Network.AWS.Data.Text (toText, ToText)
-import Data.Monoid ((<>))
+import           Control.Lens                ((^.))
+import           Control.Monad               (void)
+import           Control.Monad.IO.Class      (MonadIO, liftIO)
+import           Control.Monad.Trans.AWS     (runAWST, send)
+import qualified Data.ByteString             as B
+import           Data.ByteString.Lazy        (ByteString)
+import           Data.Monoid                 ((<>))
+import           Data.Text                   (Text)
+import           Data.Text.Encoding          (decodeUtf8)
+import           Data.Time                   (getCurrentTime)
+import           Database.Persist            (Key)
+import qualified Entities                    as E
+import           Network.AWS                 (Auth, Env, envAuth, runResourceT, toBody)
+import           Network.AWS.Data.Text       (ToText, toText)
+import           Network.AWS.Presign         (presignURL)
+import           Network.AWS.S3              (BucketName, ObjectKey, Region (Ireland), getObject,
+                                              putObject)
+
+import           Database.Persist.Postgresql (SqlBackend)
+import           Database.Persist.Sql        (insert)
+import           Web.Spock                   (HasSpock, SpockConn)
 
 
 zdBucket :: BucketName
@@ -25,15 +35,34 @@ longURL :: (ToText a, ToText b) => a -> b -> Text
 longURL bucket key = "https://" <> toText bucket <> ".s3.amazonaws.com/" <> toText key
 
 
-upload :: (MonadIO m) => Text -> ByteString -> m ()
-upload fname fcontent = do
-    env <- liftIO $ newEnv Discover <&> set envRegion Ireland
+upload :: (MonadIO m) => Env -> ObjectKey -> ByteString -> m ()
+upload env objectKey fcontent =
     liftIO . runResourceT . runAWST env $ do
-        let pobj = putObject zdBucket (ObjectKey fname) (toBody fcontent)
-        let gobj = getObject zdBucket (ObjectKey fname)
-        rightNow <- liftIO getCurrentTime
-        signed <- lift $ presignURL (env ^. envAuth) Ireland rightNow 500 gobj
-        liftIO $ print signed
-        liftIO $ print (longURL (pobj ^. poBucket) (pobj ^. poKey))
-        pure ()
-        -- void $ traceShow (show pobj) (send pobj)
+        let pobj = putObject zdBucket objectKey (toBody fcontent)
+        void $ send pobj
+
+
+signObjectKey :: MonadIO m => Auth -> ObjectKey -> m B.ByteString
+signObjectKey auth objectKey = do
+  let gobj = getObject zdBucket objectKey
+  rightNow <- liftIO getCurrentTime
+  presignURL auth Ireland rightNow 300 gobj
+
+
+uploadAndSave
+  :: (SpockConn m ~ SqlBackend, HasSpock m, MonadIO m)
+  => Env -> Key E.Mail -> ObjectKey -> ByteString -> m ()
+uploadAndSave env mail objectKey content = do
+  _ <- upload env objectKey content
+  (signed, _) <- B.breakSubstring "?" <$> signObjectKey (env ^. envAuth) objectKey
+  rightNow <- liftIO getCurrentTime
+  let attach =
+        E.Attachment
+        { E.attachmentFilename = toText objectKey
+        , E.attachmentMimetype = "application/pdf"
+        , E.attachmentUrl = decodeUtf8 signed
+        , E.attachmentMail = mail
+        , E.attachmentCreated = rightNow
+        }
+  _ <- E.runSQL $ insert attach
+  pure ()
