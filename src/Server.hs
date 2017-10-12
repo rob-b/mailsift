@@ -6,43 +6,39 @@
 
 module Server where
 
-import           Config                      (confAppLogger, confPool, confPort,
-                                              confToken, getConfig)
+import           Config                      (AppState, appStateAWSEnv, appStateToken,
+                                              confAppLogger, confAppState, confPool, confPort,
+                                              getConfig)
 import           Control.Concurrent          (forkIO)
+import           Control.Monad               (mapM_)
 import           Control.Monad.Except        (ExceptT, runExceptT, throwError)
 import           Control.Monad.IO.Class      (MonadIO, liftIO)
-import           Control.Monad.Logger        (LoggingT, logErrorN, logInfoN,
-                                              runStdoutLoggingT)
+import           Control.Monad.Logger        (LoggingT, logErrorN, logInfoN, runStdoutLoggingT)
 import           Control.Monad.Trans.Control (MonadBaseControl)
-import Control.Monad (mapM_)
 import           Data.HVect                  (HVect (HNil, (:&:)), ListContains)
 import           Data.Monoid                 ((<>))
-import           Database.Persist            (Filter (Filter), Key, PersistFilter (BackendSpecificFilter),
+import           Database.Persist            (Filter (Filter), Key,
+                                              PersistFilter (BackendSpecificFilter),
                                               SelectOpt (Desc), selectList)
-import           Database.Persist.Postgresql (SqlBackend, SqlPersistT,
-                                              fromSqlKey, runMigration,
-                                              runSqlConn, runSqlPool)
+import           Database.Persist.Postgresql (SqlBackend, fromSqlKey, runMigration, runSqlPool)
 import           Database.Persist.Sql        (ConnectionPool, insert)
-import           Entities                    (Mail (Mail), migrateAll)
+import           Entities                    (Mail (Mail), migrateAll, runSQL)
 import qualified Entities                    as E
+import           Network.AWS.Env             (Env)
 import           Network.HTTP.Types          (Status (Status))
 import           Network.HTTP.Types.Status   (status201, status401, status422)
 
-import           Network.Wai.Parse           (FileInfo,
-                                              defaultParseRequestBodyOptions,
+import           Network.AWS.S3              (ObjectKey (ObjectKey))
+import           Network.Wai.Parse           (FileInfo, defaultParseRequestBodyOptions,
                                               fileContent, fileName, lbsBackEnd,
                                               parseRequestBodyEx)
-import           Web.Spock                   (ActionCtxT, HasSpock,
-                                              SpockActionCtx, SpockConn, SpockM,
-                                              get, getContext, getState, header,
-                                              json, middleware, paramsGet, post,
-                                              prehook, request, root, runQuery,
-                                              runSpock, setStatus, spock)
-import           Web.Spock.Config            (PoolOrConn (PCPool), SpockCfg,
-                                              defaultSpockCfg, spc_errorHandler)
+import           Web.Spock                   (ActionCtxT, SpockActionCtx, SpockM, get, getContext,
+                                              getState, header, json, middleware, paramsGet, post,
+                                              prehook, request, root, runSpock, setStatus, spock)
+import           Web.Spock.Config            (PoolOrConn (PCPool), SpockCfg, defaultSpockCfg,
+                                              spc_errorHandler)
 
-import           Data.Aeson                  (KeyValue, ToJSON, Value (Object),
-                                              object, (.=))
+import           Data.Aeson                  (KeyValue, ToJSON, Value (Object), object, (.=))
 import           GHC.Exts                    (fromList)
 
 import qualified Data.ByteString             as B
@@ -60,9 +56,9 @@ import qualified Text.Digestive.Form         as D
 import           Upload                      (upload)
 
 
-type Api = SpockM SqlBackend () String ()
-type ApiAction a = SpockActionCtx (HVect '[]) SqlBackend () String a
-type AuthedApiAction ctx a = SpockActionCtx ctx SqlBackend () String a
+type Api = SpockM SqlBackend () AppState ()
+type ApiAction a = SpockActionCtx (HVect '[]) SqlBackend () AppState a
+type AuthedApiAction ctx a = SpockActionCtx ctx SqlBackend () AppState a
 
 
 errorHandler :: Status -> ActionCtxT () IO ()
@@ -110,9 +106,9 @@ initHook = return HNil
 authHook :: AuthedApiAction (HVect xs) (HVect (User ': xs))
 authHook = do
   oldCtx <- getContext
-  state <- getState
+  appState <- getState
   auth <- header "Authorization"
-  if authCheck auth state
+  if authCheck auth (appStateToken appState)
     then return (User :&: oldCtx)
     else do
       setStatus status401
@@ -143,8 +139,9 @@ parseEmailHook = do
       setStatus status422
       json (Object $ fromList ["error" .= ej])
     Right email -> do
+      appState <- getState
       emailKey <- runSQL $ insert email
-      _ <- liftIO $ uploadFiles emailKey filesMap
+      _ <- liftIO $ uploadFiles (appStateAWSEnv appState) emailKey filesMap
       setStatus status201
       json email
 
@@ -159,16 +156,19 @@ newtype ErrorJson = ErrorJson Value
 
 uploadFiles
   :: (Foldable t1)
-  => Key Mail -> t1 (t, FileInfo ByteString) -> IO ()
-uploadFiles key = mapM_ (uploadFile key)
+  => Env -> Key Mail -> t1 (t, FileInfo ByteString) -> IO ()
+uploadFiles env key = mapM_ (uploadFile env key)
 
 
-uploadFile :: (MonadIO m) => Key Mail -> (t, FileInfo ByteString) -> m ()
-uploadFile key (_, fInfo) = do
-  _ <- liftIO $ forkIO $ upload (mkname key fInfo) (fileContent fInfo)
+uploadFile
+  :: (MonadIO m)
+  => Env -> Key Mail -> (t, FileInfo ByteString) -> m ()
+uploadFile env key (_, fInfo) = do
+  _ <- liftIO $ forkIO $ upload env (mkname key fInfo) (fileContent fInfo)
   pure ()
   where
-    mkname key' fInfo' = T.pack (show (fromSqlKey key')) <> "/" <> decodeUtf8 (fileName fInfo')
+    mkname key' fInfo' =
+      ObjectKey $ T.pack (show (fromSqlKey key')) <> "/" <> decodeUtf8 (fileName fInfo')
 
 
 validateParams :: [(B.ByteString, B.ByteString)] -> ExceptT ErrorJson (LoggingT IO) Mail
@@ -192,11 +192,6 @@ migrate :: (MonadBaseControl IO m, MonadIO m) => ConnectionPool -> m ()
 migrate pool = runStdoutLoggingT $ runSqlPool (runMigration migrateAll) pool
 
 
--- | Execute a given sql command
-runSQL :: (HasSpock m, SpockConn m ~ SqlBackend) => SqlPersistT (LoggingT IO) a -> m a
-runSQL action = runQuery $ \conn -> runStdoutLoggingT $ runSqlConn action conn
-
-
 -- | Load the config and start the application
 run :: IO ()
 run = do
@@ -204,8 +199,7 @@ run = do
   let pool = confPool conf
   let port = confPort conf
   let logger = confAppLogger conf
-  let token = confToken conf
-  spockCfg <- mailsiftConfig <$> defaultSpockCfg () (PCPool pool) token
+  spockCfg <- mailsiftConfig <$> defaultSpockCfg () (PCPool pool) (confAppState conf)
   migrate pool
   runSpock port (spock spockCfg $ middleware logger >> app)
 

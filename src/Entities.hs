@@ -10,11 +10,17 @@
 
 module Entities where
 
-import           Data.Text           (Text)
-import           Database.Persist.TH (mkMigrate, mkPersist, persistLowerCase,
-                                      share, sqlSettings)
-import Data.Time.Clock (UTCTime)
+import           Control.Monad.Logger        (LoggingT, runStdoutLoggingT)
+import           Data.Text                   (Text)
+import           Data.Time.Clock             (UTCTime)
+import           Database.Persist.Postgresql (SqlBackend, SqlPersistT, runSqlConn)
+import           Database.Persist.TH         (mkMigrate, mkPersist, persistLowerCase, share,
+                                              sqlSettings)
+import           Web.Spock                   (HasSpock, SpockConn, runQuery)
 
+
+runSQL :: (HasSpock m, SpockConn m ~ SqlBackend) => SqlPersistT (LoggingT IO) a -> m a
+runSQL action = runQuery $ \conn -> runStdoutLoggingT $ runSqlConn action conn
 
 share
   [mkPersist sqlSettings, mkMigrate "migrateAll"]
