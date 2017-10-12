@@ -37,6 +37,7 @@ library:
   - heroku
   - mtl
   - amazonka
+  - amazonka-core
   - amazonka-s3
   - lens
   - vector
