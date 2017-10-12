@@ -11,14 +11,18 @@ import           Data.ByteString.Lazy    (ByteString)
 import           Data.Text               (Text)
 import           Data.Time (getCurrentTime)
 import           Network.AWS (Credentials(Discover), envRegion, newEnv, runResourceT, toBody, envAuth)
-import           Network.AWS.Data.Path (rawPath)
 import           Network.AWS.Presign (presignURL)
-import           Network.AWS.S3 (ObjectKey(ObjectKey), Region(Ireland), putObject, poBucket, getObject, BucketName)
--- import Network.AWS.S3.PutObject (toPath)
+import Network.AWS.S3 (ObjectKey(ObjectKey), Region(Ireland), putObject, poBucket, getObject, BucketName, poKey)
+import Network.AWS.Data.Text (toText, ToText)
+import Data.Monoid ((<>))
 
 
 zdBucket :: BucketName
 zdBucket = "zd-attachments"
+
+
+longURL :: (ToText a, ToText b) => a -> b -> Text
+longURL bucket key = "https://" <> toText bucket <> ".s3.amazonaws.com/" <> toText key
 
 
 upload :: (MonadIO m) => Text -> ByteString -> m ()
@@ -30,6 +34,6 @@ upload fname fcontent = do
         rightNow <- liftIO getCurrentTime
         signed <- lift $ presignURL (env ^. envAuth) Ireland rightNow 500 gobj
         liftIO $ print signed
-        liftIO $ print (pobj ^. poBucket)
+        liftIO $ print (longURL (pobj ^. poBucket) (pobj ^. poKey))
         pure ()
         -- void $ traceShow (show pobj) (send pobj)
