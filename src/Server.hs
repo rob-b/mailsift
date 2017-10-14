@@ -25,22 +25,20 @@ import           Database.Persist.Sql        (ConnectionPool, insert)
 import           Entities                    (Mail (Mail), migrateAll, runSQL)
 import qualified Entities                    as E
 import           Network.AWS.Env             (Env)
+import           Network.AWS.S3              (ObjectKey (ObjectKey))
 import           Network.HTTP.Types          (Status (Status))
 import           Network.HTTP.Types.Status   (status201, status401, status422)
-
-import           Network.AWS.S3              (ObjectKey (ObjectKey))
 import           Network.Wai.Parse           (FileInfo, defaultParseRequestBodyOptions,
                                               fileContent, fileName, lbsBackEnd,
                                               parseRequestBodyEx)
-import           Web.Spock                   (ActionCtxT, SpockActionCtx, SpockM, get, getContext,
-                                              getState, header, json, middleware, paramsGet, post,
-                                              prehook, request, root, runSpock, setStatus, spock)
+import           Web.Spock                   (ActionCtxT, HasSpock, SpockActionCtx, SpockConn,
+                                              SpockM, get, getContext, getState, header, json,
+                                              middleware, paramsGet, post, prehook, request, root,
+                                              runSpock, setStatus, spock)
 import           Web.Spock.Config            (PoolOrConn (PCPool), SpockCfg, defaultSpockCfg,
                                               spc_errorHandler)
 
 import           Data.Aeson                  (KeyValue, ToJSON, Value (Object), object, (.=))
-import           GHC.Exts                    (fromList)
-
 import qualified Data.ByteString             as B
 import           Data.ByteString.Lazy        (ByteString)
 import           Data.Maybe                  (isJust, mapMaybe)
@@ -50,10 +48,11 @@ import qualified Data.Text                   as T
 import           Data.Text.Encoding          (decodeUtf8)
 import           Data.Time.Clock             (getCurrentTime)
 import qualified Data.Vector                 as V
+import           GHC.Exts                    (fromList)
 import           Text.Digestive              (Form, check, monadic)
 import           Text.Digestive.Aeson        (digestJSON, jsonErrors)
 import qualified Text.Digestive.Form         as D
-import           Upload                      (upload)
+import           Upload                      (uploadAndSave)
 
 
 type Api = SpockM SqlBackend () AppState ()
@@ -141,7 +140,7 @@ parseEmailHook = do
     Right email -> do
       appState <- getState
       emailKey <- runSQL $ insert email
-      _ <- liftIO $ uploadFiles (appStateAWSEnv appState) emailKey filesMap
+      _ <- uploadFiles (appStateAWSEnv appState) emailKey filesMap
       setStatus status201
       json email
 
@@ -155,16 +154,16 @@ newtype ErrorJson = ErrorJson Value
 
 
 uploadFiles
-  :: (Foldable t1)
-  => Env -> Key Mail -> t1 (t, FileInfo ByteString) -> IO ()
+  :: (SpockConn m ~ SqlBackend, HasSpock m, MonadIO m, Foldable t1)
+  => Env -> Key Mail -> t1 (t, FileInfo ByteString) -> m ()
 uploadFiles env key = mapM_ (uploadFile env key)
 
 
 uploadFile
-  :: (MonadIO m)
+  :: (MonadIO m, HasSpock m, SpockConn m ~ SqlBackend)
   => Env -> Key Mail -> (t, FileInfo ByteString) -> m ()
 uploadFile env key (_, fInfo) = do
-  _ <- liftIO $ forkIO $ upload env (mkname key fInfo) (fileContent fInfo)
+  _ <- runSQL $ uploadAndSave env key (mkname key fInfo) (fileContent fInfo)
   pure ()
   where
     mkname key' fInfo' =

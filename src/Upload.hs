@@ -1,12 +1,14 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE TypeOperators #-}
+{-# LANGUAGE FlexibleContexts #-}
 
 module Upload where
 
 import           Control.Lens                ((^.))
 import           Control.Monad               (void)
 import           Control.Monad.IO.Class      (MonadIO, liftIO)
+import           Control.Monad.Reader        (ReaderT)
 import           Control.Monad.Trans.AWS     (runAWST, send)
 import qualified Data.ByteString             as B
 import           Data.ByteString.Lazy        (ByteString)
@@ -15,6 +17,8 @@ import           Data.Text                   (Text)
 import           Data.Text.Encoding          (decodeUtf8)
 import           Data.Time                   (getCurrentTime)
 import           Database.Persist            (Key)
+import           Database.Persist.Postgresql (PersistRecordBackend, PersistStoreWrite)
+import           Database.Persist.Sql        (insert)
 import qualified Entities                    as E
 import           Network.AWS                 (Auth, Env, envAuth, runResourceT, toBody)
 import           Network.AWS.Data.Text       (ToText, toText)
@@ -22,9 +26,6 @@ import           Network.AWS.Presign         (presignURL)
 import           Network.AWS.S3              (BucketName, ObjectKey, Region (Ireland), getObject,
                                               putObject)
 
-import           Database.Persist.Postgresql (SqlBackend)
-import           Database.Persist.Sql        (insert)
-import           Web.Spock                   (HasSpock, SpockConn)
 
 
 zdBucket :: BucketName
@@ -50,8 +51,8 @@ signObjectKey auth objectKey = do
 
 
 uploadAndSave
-  :: (SpockConn m ~ SqlBackend, HasSpock m, MonadIO m)
-  => Env -> Key E.Mail -> ObjectKey -> ByteString -> m ()
+  :: (PersistStoreWrite backend, PersistRecordBackend E.Attachment backend, MonadIO m)
+  => Env -> Key E.Mail -> ObjectKey -> ByteString -> ReaderT backend m (Key E.Attachment)
 uploadAndSave env mail objectKey content = do
   _ <- upload env objectKey content
   (signed, _) <- B.breakSubstring "?" <$> signObjectKey (env ^. envAuth) objectKey
@@ -64,5 +65,4 @@ uploadAndSave env mail objectKey content = do
         , E.attachmentMail = mail
         , E.attachmentCreated = rightNow
         }
-  _ <- E.runSQL $ insert attach
-  pure ()
+  insert attach
