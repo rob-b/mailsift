@@ -42,6 +42,7 @@ library:
   - lens
   - vector
   - hvect
+  - resource-pool
 executables:
   mailsift:
     main: Main.hs

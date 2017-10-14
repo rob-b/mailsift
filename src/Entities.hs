@@ -23,6 +23,9 @@ runSQL :: (HasSpock m, SpockConn m ~ SqlBackend) => SqlPersistT (LoggingT IO) a 
 runSQL action = runQuery $ \conn -> runStdoutLoggingT $ runSqlConn action conn
 
 
+run2 conn action = runStdoutLoggingT $ runSqlConn action conn
+
+
 share
   [mkPersist sqlSettings, mkMigrate "migrateAll"]
   [persistLowerCase|

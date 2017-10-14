@@ -10,20 +10,33 @@ import           Config                      (AppState, appStateAWSEnv, appState
                                               confAppLogger, confAppState, confPool, confPort,
                                               getConfig)
 import           Control.Concurrent          (forkIO)
-import           Control.Monad               (mapM_)
+import           Control.Monad               (forM_, void)
 import           Control.Monad.Except        (ExceptT, runExceptT, throwError)
 import           Control.Monad.IO.Class      (MonadIO, liftIO)
 import           Control.Monad.Logger        (LoggingT, logErrorN, logInfoN, runStdoutLoggingT)
 import           Control.Monad.Trans.Control (MonadBaseControl)
+import           Data.Aeson                  (KeyValue, ToJSON, Value (Object), object, (.=))
+import qualified Data.ByteString             as B
+import           Data.ByteString.Lazy        (ByteString)
 import           Data.HVect                  (HVect (HNil, (:&:)), ListContains)
+import           Data.Maybe                  (isJust, mapMaybe)
 import           Data.Monoid                 ((<>))
-import           Database.Persist            (Filter (Filter), Key,
+import           Data.Pool                   (Pool, withResource)
+import           Data.String                 (IsString)
+import           Data.Text                   (Text)
+import qualified Data.Text                   as T
+import           Data.Text.Encoding          (decodeUtf8)
+import           Data.Time.Clock             (getCurrentTime)
+import qualified Data.Vector                 as V
+import           Database.Persist            (Filter (Filter), IsPersistBackend, Key,
                                               PersistFilter (BackendSpecificFilter),
                                               SelectOpt (Desc), selectList)
-import           Database.Persist.Postgresql (SqlBackend, fromSqlKey, runMigration, runSqlPool)
+import           Database.Persist.Postgresql (BaseBackend, PersistStoreWrite, SqlBackend,
+                                              fromSqlKey, runMigration, runSqlPool)
 import           Database.Persist.Sql        (ConnectionPool, insert)
-import           Entities                    (Mail (Mail), migrateAll, runSQL)
+import           Entities                    (Mail (Mail), migrateAll, run2, runSQL)
 import qualified Entities                    as E
+import           GHC.Exts                    (fromList)
 import           Network.AWS.Env             (Env)
 import           Network.AWS.S3              (ObjectKey (ObjectKey))
 import           Network.HTTP.Types          (Status (Status))
@@ -31,28 +44,16 @@ import           Network.HTTP.Types.Status   (status201, status401, status422)
 import           Network.Wai.Parse           (FileInfo, defaultParseRequestBodyOptions,
                                               fileContent, fileName, lbsBackEnd,
                                               parseRequestBodyEx)
-import           Web.Spock                   (ActionCtxT, HasSpock, SpockActionCtx, SpockConn,
-                                              SpockM, get, getContext, getState, header, json,
-                                              middleware, paramsGet, post, prehook, request, root,
-                                              runSpock, setStatus, spock)
-import           Web.Spock.Config            (PoolOrConn (PCPool), SpockCfg, defaultSpockCfg,
-                                              spc_errorHandler)
-
-import           Data.Aeson                  (KeyValue, ToJSON, Value (Object), object, (.=))
-import qualified Data.ByteString             as B
-import           Data.ByteString.Lazy        (ByteString)
-import           Data.Maybe                  (isJust, mapMaybe)
-import           Data.String                 (IsString)
-import           Data.Text                   (Text)
-import qualified Data.Text                   as T
-import           Data.Text.Encoding          (decodeUtf8)
-import           Data.Time.Clock             (getCurrentTime)
-import qualified Data.Vector                 as V
-import           GHC.Exts                    (fromList)
 import           Text.Digestive              (Form, check, monadic)
 import           Text.Digestive.Aeson        (digestJSON, jsonErrors)
 import qualified Text.Digestive.Form         as D
 import           Upload                      (uploadAndSave)
+import           Web.Spock                   (ActionCtxT, SpockActionCtx, SpockM, get, getContext,
+                                              getSpockPool, getState, header, json, middleware,
+                                              paramsGet, post, prehook, request, root, runSpock,
+                                              setStatus, spock)
+import           Web.Spock.Config            (PoolOrConn (PCPool), SpockCfg, defaultSpockCfg,
+                                              spc_errorHandler)
 
 
 type Api = SpockM SqlBackend () AppState ()
@@ -139,8 +140,9 @@ parseEmailHook = do
       json (Object $ fromList ["error" .= ej])
     Right email -> do
       appState <- getState
-      emailKey <- runSQL $ insert email
-      _ <- uploadFiles (appStateAWSEnv appState) emailKey filesMap
+      pool <- getSpockPool
+      emailKey <- runSQLAction pool (\conn -> run2 conn $ insert email)
+      _ <- liftIO $ uploadFiles pool (appStateAWSEnv appState) emailKey filesMap
       setStatus status201
       json email
 
@@ -153,17 +155,29 @@ dataWrapper a = object ["data" .= a]
 newtype ErrorJson = ErrorJson Value
 
 
+runSQLAction :: MonadIO m => Pool a1 -> (a1 -> IO a) -> m a
+runSQLAction pool query = liftIO $ withResource pool query
+
+
 uploadFiles
-  :: (SpockConn m ~ SqlBackend, HasSpock m, MonadIO m, Foldable t1)
-  => Env -> Key Mail -> t1 (t, FileInfo ByteString) -> m ()
-uploadFiles env key = mapM_ (uploadFile env key)
+  :: ( BaseBackend backend ~ SqlBackend
+     , PersistStoreWrite backend
+     , IsPersistBackend backend
+     , Foldable t1
+     )
+  => Pool backend -> Env -> Key Mail -> t1 (t, FileInfo ByteString) -> IO ()
+uploadFiles pool env key things =
+  forM_ things $ \thing -> do
+    _ <- uploadFile pool env key thing
+    pure ()
 
 
 uploadFile
-  :: (MonadIO m, HasSpock m, SpockConn m ~ SqlBackend)
-  => Env -> Key Mail -> (t, FileInfo ByteString) -> m ()
-uploadFile env key (_, fInfo) = do
-  _ <- runSQL $ uploadAndSave env key (mkname key fInfo) (fileContent fInfo)
+  :: (BaseBackend backend ~ SqlBackend, IsPersistBackend backend, PersistStoreWrite backend)
+  => Pool backend -> Env -> Key Mail -> (t, FileInfo ByteString) -> IO ()
+uploadFile pool env key (_, fInfo) = do
+  let dbAction = uploadAndSave env key (mkname key fInfo) (fileContent fInfo)
+  _ <- forkIO $ void (runSQLAction pool (`run2` dbAction))
   pure ()
   where
     mkname key' fInfo' =
