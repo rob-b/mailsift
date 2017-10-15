@@ -9,45 +9,36 @@ module Server where
 import           Config                      (AppState, appStateAWSEnv, appStateToken,
                                               confAppLogger, confAppState, confPool, confPort,
                                               getConfig)
-import           Control.Concurrent          (forkIO)
-import           Control.Monad               (forM_, void)
 import           Control.Monad.Except        (ExceptT, runExceptT, throwError)
 import           Control.Monad.IO.Class      (MonadIO, liftIO)
 import           Control.Monad.Logger        (LoggingT, logErrorN, logInfoN, runStdoutLoggingT)
-import           Control.Monad.Trans.Control (MonadBaseControl)
 import           Data.Aeson                  (KeyValue, ToJSON, Value (Object), object, (.=))
 import qualified Data.ByteString             as B
-import           Data.ByteString.Lazy        (ByteString)
 import           Data.HVect                  (HVect (HNil, (:&:)), ListContains)
 import           Data.Maybe                  (isJust, mapMaybe)
 import           Data.Monoid                 ((<>))
-import           Data.Pool                   (Pool, withResource)
 import           Data.String                 (IsString)
 import           Data.Text                   (Text)
 import qualified Data.Text                   as T
 import           Data.Text.Encoding          (decodeUtf8)
 import           Data.Time.Clock             (getCurrentTime)
 import qualified Data.Vector                 as V
-import           Database.Persist            (Filter (Filter), IsPersistBackend, Key,
+import           Database.Persist            (Filter (Filter),
                                               PersistFilter (BackendSpecificFilter),
                                               SelectOpt (Desc), selectList)
-import           Database.Persist.Postgresql (BaseBackend, PersistStoreWrite, SqlBackend,
-                                              fromSqlKey, runMigration, runSqlPool)
-import           Database.Persist.Sql        (ConnectionPool, insert)
-import           Entities                    (Mail (Mail), migrateAll, run2, runSQL)
+import           Database.Persist.Postgresql (SqlBackend)
+import           Database.Persist.Sql        (insert)
+import           Entities                    (Mail (Mail), migrate, run2, runSQL, runSQLAction)
 import qualified Entities                    as E
 import           GHC.Exts                    (fromList)
-import           Network.AWS.Env             (Env)
-import           Network.AWS.S3              (ObjectKey (ObjectKey))
 import           Network.HTTP.Types          (Status (Status))
 import           Network.HTTP.Types.Status   (status201, status401, status422)
-import           Network.Wai.Parse           (FileInfo, defaultParseRequestBodyOptions,
-                                              fileContent, fileName, lbsBackEnd,
+import           Network.Wai.Parse           (defaultParseRequestBodyOptions, lbsBackEnd,
                                               parseRequestBodyEx)
 import           Text.Digestive              (Form, check, monadic)
 import           Text.Digestive.Aeson        (digestJSON, jsonErrors)
 import qualified Text.Digestive.Form         as D
-import           Upload                      (uploadAndSave)
+import           Upload                      (uploadFiles)
 import           Web.Spock                   (ActionCtxT, SpockActionCtx, SpockM, get, getContext,
                                               getSpockPool, getState, header, json, middleware,
                                               paramsGet, post, prehook, request, root, runSpock,
@@ -155,35 +146,6 @@ dataWrapper a = object ["data" .= a]
 newtype ErrorJson = ErrorJson Value
 
 
-runSQLAction :: MonadIO m => Pool a1 -> (a1 -> IO a) -> m a
-runSQLAction pool query = liftIO $ withResource pool query
-
-
-uploadFiles
-  :: ( BaseBackend backend ~ SqlBackend
-     , PersistStoreWrite backend
-     , IsPersistBackend backend
-     , Foldable t1
-     )
-  => Pool backend -> Env -> Key Mail -> t1 (t, FileInfo ByteString) -> IO ()
-uploadFiles pool env key things =
-  forM_ things $ \thing -> do
-    _ <- uploadFile pool env key thing
-    pure ()
-
-
-uploadFile
-  :: (BaseBackend backend ~ SqlBackend, IsPersistBackend backend, PersistStoreWrite backend)
-  => Pool backend -> Env -> Key Mail -> (t, FileInfo ByteString) -> IO ()
-uploadFile pool env key (_, fInfo) = do
-  let dbAction = uploadAndSave env key (mkname key fInfo) (fileContent fInfo)
-  _ <- forkIO $ void (runSQLAction pool (`run2` dbAction))
-  pure ()
-  where
-    mkname key' fInfo' =
-      ObjectKey $ T.pack (show (fromSqlKey key')) <> "/" <> decodeUtf8 (fileName fInfo')
-
-
 validateParams :: [(B.ByteString, B.ByteString)] -> ExceptT ErrorJson (LoggingT IO) Mail
 validateParams params = do
   let dynJson = Object . fromList $ map paramToKeyValue params
@@ -199,10 +161,6 @@ validateParams params = do
 
 paramToKeyValue :: (KeyValue kv) => (B.ByteString, B.ByteString) -> kv
 paramToKeyValue (key, value) = decodeUtf8 key .= decodeUtf8 value
-
-
-migrate :: (MonadBaseControl IO m, MonadIO m) => ConnectionPool -> m ()
-migrate pool = runStdoutLoggingT $ runSqlPool (runMigration migrateAll) pool
 
 
 -- | Load the config and start the application

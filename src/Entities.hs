@@ -10,20 +10,18 @@
 
 module Entities where
 
+import           Data.Pool                   (Pool, withResource)
+import           Control.Monad.IO.Class      (MonadIO, liftIO)
 import           Control.Monad.Logger        (LoggingT, runStdoutLoggingT)
+import           Control.Monad.Trans.Control (MonadBaseControl)
 import           Data.Text                   (Text)
 import           Data.Time.Clock             (UTCTime)
-import           Database.Persist.Postgresql (SqlBackend, SqlPersistT, runSqlConn)
+import           Database.Persist.Postgresql (SqlBackend, SqlPersistT, runMigration, runSqlConn,
+                                              runSqlPool)
+import           Database.Persist.Sql        (ConnectionPool)
 import           Database.Persist.TH         (mkMigrate, mkPersist, persistLowerCase, share,
                                               sqlSettings)
 import           Web.Spock                   (HasSpock, SpockConn, runQuery)
-
-
-runSQL :: (HasSpock m, SpockConn m ~ SqlBackend) => SqlPersistT (LoggingT IO) a -> m a
-runSQL action = runQuery $ \conn -> runStdoutLoggingT $ runSqlConn action conn
-
-
-run2 conn action = runStdoutLoggingT $ runSqlConn action conn
 
 
 share
@@ -45,3 +43,21 @@ Attachment json
   created UTCTime
   deriving Show
 |]
+
+
+migrate :: (MonadBaseControl IO m, MonadIO m) => ConnectionPool -> m ()
+migrate pool = runStdoutLoggingT $ runSqlPool (runMigration migrateAll) pool
+
+
+runSQL :: (HasSpock m, SpockConn m ~ SqlBackend) => SqlPersistT (LoggingT IO) a -> m a
+runSQL action = runQuery $ \conn -> runStdoutLoggingT $ runSqlConn action conn
+
+
+run2
+  :: (MonadBaseControl IO m, MonadIO m)
+  => SqlBackend -> SqlPersistT (LoggingT m) a -> m a
+run2 conn action = runStdoutLoggingT $ runSqlConn action conn
+
+
+runSQLAction :: MonadIO m => Pool a1 -> (a1 -> IO a) -> m a
+runSQLAction pool query = liftIO $ withResource pool query
