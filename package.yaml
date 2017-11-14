@@ -43,6 +43,8 @@ library:
   - vector
   - hvect
   - resource-pool
+  - stm
+  - async
 executables:
   mailsift:
     main: Main.hs

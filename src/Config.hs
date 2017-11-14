@@ -1,7 +1,9 @@
 {-# LANGUAGE OverloadedStrings #-}
 module Config where
 
-import           Control.Lens                         (set, (<&>) )
+import qualified Queue
+import           Control.Concurrent.STM.TBQueue       (TBQueue)
+import           Control.Lens                         (set, (<&>))
 import           Control.Monad.Logger                 (runNoLoggingT, runStdoutLoggingT)
 import           Data.Maybe                           (fromMaybe)
 import qualified Data.Text                            as T
@@ -21,6 +23,7 @@ import           Web.Heroku                           (parseDatabaseUrl)
 data AppState = AppState
   { appStateAWSEnv :: Env
   , appStateToken :: String
+  , appStateQueue :: TBQueue (IO ())
   }
 
 
@@ -44,9 +47,10 @@ getConfig = do
   port <- lookupSettingSafe "PORT" 8080
   dbUrl <- lookupSetting "DATABASE_URL" "postgres://mailsift:@localhost:5432/mailsift"
   token <- lookupSetting "AUTH_TOKEN" "it would be better to just break here"
+  queue <- Queue.make
   let logger = setLogger env
   let s = createConnectionString (parseDatabaseUrl dbUrl)
-  let appState = AppState {appStateToken = token, appStateAWSEnv = awsEnv}
+  let appState = AppState {appStateToken = token, appStateAWSEnv = awsEnv, appStateQueue = queue}
   pool <-
     case env of
       Production -> runStdoutLoggingT (DB.createPostgresqlPool s 4)

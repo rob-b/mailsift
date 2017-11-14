@@ -8,7 +8,7 @@ module Server where
 
 import           Config                      (AppState, appStateAWSEnv, appStateToken,
                                               confAppLogger, confAppState, confPool, confPort,
-                                              getConfig)
+                                              appStateQueue, getConfig)
 import           Control.Monad.Except        (ExceptT, runExceptT, throwError)
 import           Control.Monad.IO.Class      (MonadIO, liftIO)
 import           Control.Monad.Logger        (LoggingT, logErrorN, logInfoN, runStdoutLoggingT)
@@ -35,6 +35,7 @@ import           Network.HTTP.Types          (Status (Status))
 import           Network.HTTP.Types.Status   (status201, status401, status422)
 import           Network.Wai.Parse           (defaultParseRequestBodyOptions, lbsBackEnd,
                                               parseRequestBodyEx)
+import qualified Queue
 import           Text.Digestive              (Form, check, monadic)
 import           Text.Digestive.Aeson        (digestJSON, jsonErrors)
 import qualified Text.Digestive.Form         as D
@@ -133,7 +134,7 @@ parseEmailHook = do
       appState <- getState
       pool <- getSpockPool
       emailKey <- runSQLAction pool (\conn -> run2 conn $ insert email)
-      _ <- liftIO $ uploadFiles pool (appStateAWSEnv appState) emailKey filesMap
+      _ <- liftIO $ uploadFiles pool (appStateQueue appState) (appStateAWSEnv appState) emailKey filesMap
       setStatus status201
       json email
 
@@ -170,7 +171,11 @@ run = do
   let pool = confPool conf
   let port = confPort conf
   let logger = confAppLogger conf
-  spockCfg <- mailsiftConfig <$> defaultSpockCfg () (PCPool pool) (confAppState conf)
+  let appState = confAppState conf
+  let queue = appStateQueue appState
+
+  _ <- Queue.worker queue
+  spockCfg <- mailsiftConfig <$> defaultSpockCfg () (PCPool pool) appState
   migrate pool
   runSpock port (spock spockCfg $ middleware logger >> app)
 
