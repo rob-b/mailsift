@@ -1,7 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 module Config where
 
-import qualified Queue
 import           Control.Concurrent.STM.TBQueue       (TBQueue)
 import           Control.Lens                         (set, (<&>))
 import           Control.Monad.Logger                 (runNoLoggingT, runStdoutLoggingT)
@@ -15,6 +14,7 @@ import           Network.AWS.Auth                     (Credentials (Discover))
 import           Network.AWS.Env                      (Env, envRegion, newEnv)
 import           Network.Wai                          (Middleware)
 import           Network.Wai.Middleware.RequestLogger (logStdout, logStdoutDev)
+import qualified Queue
 import           System.Environment                   (lookupEnv)
 import           Text.Read                            (readMaybe)
 import           Web.Heroku                           (parseDatabaseUrl)
@@ -22,17 +22,17 @@ import           Web.Heroku                           (parseDatabaseUrl)
 
 data AppState = AppState
   { appStateAWSEnv :: Env
-  , appStateToken :: String
-  , appStateQueue :: TBQueue (IO ())
+  , appStateToken  :: String
+  , appStateQueue  :: TBQueue (IO ())
   }
 
 
 data Config = Config
-  { confEnv :: Environment
-  , confPort :: Int
-  , confPool :: ConnectionPool
+  { confEnv       :: Environment
+  , confPort      :: Int
+  , confPool      :: ConnectionPool
   , confAppLogger ::  Middleware
-  , confAppState :: AppState
+  , confAppState  :: AppState
   }
 
 
@@ -45,17 +45,19 @@ getConfig = do
   awsEnv <- getAWSEnv
   env <- lookupSettingSafe "ENV" Development
   port <- lookupSettingSafe "PORT" 8080
-  dbUrl <- lookupSetting "DATABASE_URL" "postgres://mailsift:@localhost:5432/mailsift"
+  rdsDbUrl <- lookupEnv "RDS_DATABASE_URL"
+  dbUrl' <- lookupSetting "DATABASE_URL" "postgres://mailsift:@localhost:5432/mailsift"
   token <- lookupSetting "AUTH_TOKEN" "it would be better to just break here"
   queue <- Queue.make
+  let dbUrl = fromMaybe dbUrl' rdsDbUrl
   let logger = setLogger env
   let s = createConnectionString (parseDatabaseUrl dbUrl)
   let appState = AppState {appStateToken = token, appStateAWSEnv = awsEnv, appStateQueue = queue}
   pool <-
     case env of
-      Production -> runStdoutLoggingT (DB.createPostgresqlPool s 4)
+      Production  -> runStdoutLoggingT (DB.createPostgresqlPool s 4)
       Development -> runStdoutLoggingT (DB.createPostgresqlPool s 1)
-      Test -> runNoLoggingT (DB.createPostgresqlPool s 1)
+      Test        -> runNoLoggingT (DB.createPostgresqlPool s 1)
   pure
     Config
     { confEnv = env
@@ -80,9 +82,9 @@ data Environment
 
 
 setLogger :: Environment -> Middleware
-setLogger Test = id
+setLogger Test        = id
 setLogger Development = logStdoutDev
-setLogger Production = logStdout
+setLogger Production  = logStdout
 
 
 lookupSettingSafe
@@ -91,7 +93,7 @@ lookupSettingSafe
 lookupSettingSafe env def = do
   maybeValue <- lookupEnv env
   case maybeValue of
-    Nothing -> return def
+    Nothing  -> return def
     Just str -> maybe (handleFailedRead str) return (readMaybe str)
   where
     handleFailedRead str =
