@@ -1,20 +1,20 @@
+{-# LANGUAGE DataKinds         #-}
+{-# LANGUAGE FlexibleContexts  #-}
+{-# LANGUAGE GADTs             #-}
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE GADTs #-}
-{-# LANGUAGE FlexibleContexts #-}
-{-# LANGUAGE TypeOperators #-}
-{-# LANGUAGE DataKinds #-}
+{-# LANGUAGE TypeOperators     #-}
 
 module Server where
 
-import           Config                      (AppState, appStateAWSEnv, appStateToken,
-                                              confAppLogger, confAppState, confPool, confPort,
-                                              appStateQueue, getConfig)
+import           Config                      (AppState, appStateAWSEnv, appStateQueue,
+                                              appStateToken, confAppLogger, confAppState, confPool,
+                                              confPort, getConfig)
 import           Control.Monad.Except        (ExceptT, runExceptT, throwError)
 import           Control.Monad.IO.Class      (MonadIO, liftIO)
 import           Control.Monad.Logger        (LoggingT, logErrorN, logInfoN, runStdoutLoggingT)
 import           Data.Aeson                  (KeyValue, ToJSON, Value (Object), object, (.=))
 import qualified Data.ByteString             as B
-import           Data.HVect                  (HVect (HNil, (:&:)), ListContains)
+import           Data.HVect                  (HVect ((:&:), HNil), ListContains)
 import           Data.Maybe                  (isJust, mapMaybe)
 import           Data.Monoid                 ((<>))
 import           Data.String                 (IsString)
@@ -76,8 +76,20 @@ emailForm =
     <*> monadic (pure <$> liftIO getCurrentTime)
   where
     nonEmptyText = check "Cannot be empty." (not . T.null) (D.text Nothing)
-    checkEmail :: Text -> Bool
-    checkEmail = isJust . T.find (== '@')
+
+checkEmail :: Text -> Bool
+checkEmail email = isJust (T.find (== '@') email) && not (dumbIsZdEmail email) && not (isZdEmail email)
+
+isZdEmail :: Text -> Bool
+isZdEmail email = combiner $ (\pair -> snd pair == "@zerodeposit.com") . flip T.splitAt email <$> T.findIndex (== '@') email
+
+dumbIsZdEmail :: Text -> Bool
+dumbIsZdEmail = (== "ZD Testing<testing+accounting@zerodeposit.com>")
+
+combiner :: Maybe Bool -> Bool
+combiner Nothing      = False
+combiner (Just False) = False
+combiner (Just True)  = True
 
 
 -- | Routing
@@ -109,7 +121,7 @@ authHook = do
 
 
 authCheck :: Maybe Text -> String -> Bool
-authCheck Nothing _ = False
+authCheck Nothing _  = False
 authCheck (Just x) y = x == "Bearer " <> T.pack y
 
 

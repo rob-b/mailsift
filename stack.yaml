@@ -1,11 +1,10 @@
-# resolver: nightly-2017-08-20
-resolver: lts-10.4
+flags: {}
+extra-package-dbs: []
 packages:
 - .
 extra-deps:
-  - digestive-functors-0.8.2.0
-  - digestive-functors-aeson-1.1.22
-  - heroku-0.1.2.3
-  - time-1.6.0.1
-flags: {}
-extra-package-dbs: []
+- digestive-functors-0.8.3.0
+- digestive-functors-aeson-1.1.22
+- heroku-0.1.2.3
+- primitive-0.6.4.0
+resolver: lts-10.4
