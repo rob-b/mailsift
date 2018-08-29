@@ -31,6 +31,7 @@ import           Database.Persist.Sql        (insert)
 import           Entities                    (Mail (Mail), run2, runSQL, runSQLAction)
 import qualified Entities                    as E
 import           GHC.Exts                    (fromList)
+import           Migration                   (doMigration)
 import           Network.HTTP.Types          (Status (Status))
 import           Network.HTTP.Types.Status   (status201, status401, status422)
 import           Network.Wai.Parse           (defaultParseRequestBodyOptions, lbsBackEnd,
@@ -188,6 +189,7 @@ run = do
 
   _ <- Queue.worker queue
   spockCfg <- mailsiftConfig <$> defaultSpockCfg () (PCPool pool) appState
+  _ <- doMigration
   runSpock port (spock spockCfg $ middleware logger >> app)
 
 
