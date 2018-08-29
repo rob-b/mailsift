@@ -28,7 +28,7 @@ import           Database.Persist            (Filter (Filter),
                                               SelectOpt (Desc), selectList)
 import           Database.Persist.Postgresql (SqlBackend)
 import           Database.Persist.Sql        (insert)
-import           Entities                    (Mail (Mail), migrate, run2, runSQL, runSQLAction)
+import           Entities                    (Mail (Mail), run2, runSQL, runSQLAction)
 import qualified Entities                    as E
 import           GHC.Exts                    (fromList)
 import           Network.HTTP.Types          (Status (Status))
@@ -188,7 +188,6 @@ run = do
 
   _ <- Queue.worker queue
   spockCfg <- mailsiftConfig <$> defaultSpockCfg () (PCPool pool) appState
-  migrate pool
   runSpock port (spock spockCfg $ middleware logger >> app)
 
 
@@ -199,8 +198,8 @@ selectFilter = mapMaybe checkF
 checkF :: (Eq a, IsString a) => (a, Text) -> Maybe (Filter Mail)
 checkF (key, value)
   | key == "subject" = Just (like E.MailSubject value)
-  | key == "from" = Just (like E.MailFrom value)
-  | key == "to" = Just (like E.MailTo value)
+  | key == "from" = Just (like E.MailFromAddress value)
+  | key == "to" = Just (like E.MailToAddress value)
   | otherwise = Nothing
 
 

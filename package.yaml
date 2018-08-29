@@ -45,6 +45,7 @@ library:
   - resource-pool
   - stm
   - async
+  - persistent-migration
 executables:
   mailsift:
     main: Main.hs

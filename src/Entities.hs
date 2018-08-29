@@ -1,19 +1,19 @@
-{-# LANGUAGE EmptyDataDecls #-}
-{-# LANGUAGE FlexibleContexts #-}
-{-# LANGUAGE FlexibleInstances #-}
-{-# LANGUAGE GADTs #-}
+{-# LANGUAGE EmptyDataDecls             #-}
+{-# LANGUAGE FlexibleContexts           #-}
+{-# LANGUAGE FlexibleInstances          #-}
+{-# LANGUAGE GADTs                      #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
-{-# LANGUAGE MultiParamTypeClasses #-}
-{-# LANGUAGE QuasiQuotes #-}
-{-# LANGUAGE TemplateHaskell #-}
-{-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE MultiParamTypeClasses      #-}
+{-# LANGUAGE QuasiQuotes                #-}
+{-# LANGUAGE TemplateHaskell            #-}
+{-# LANGUAGE TypeFamilies               #-}
 
 module Entities where
 
-import           Data.Pool                   (Pool, withResource)
 import           Control.Monad.IO.Class      (MonadIO, liftIO)
 import           Control.Monad.Logger        (LoggingT, runStdoutLoggingT)
 import           Control.Monad.Trans.Control (MonadBaseControl)
+import           Data.Pool                   (Pool, withResource)
 import           Data.Text                   (Text)
 import           Data.Time.Clock             (UTCTime)
 import           Database.Persist.Postgresql (SqlBackend, SqlPersistT, runMigration, runSqlConn,
@@ -28,8 +28,8 @@ share
   [mkPersist sqlSettings, mkMigrate "migrateAll"]
   [persistLowerCase|
 Mail json
-  from Text
-  to Text
+  fromAddress Text sql=from_address
+  toAddress Text sql=to_address
   subject Text
   body Text
   created UTCTime sql=created
