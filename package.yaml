@@ -46,6 +46,7 @@ library:
   - stm
   - async
   - persistent-migration
+  - unordered-containers
 executables:
   mailsift:
     main: Main.hs

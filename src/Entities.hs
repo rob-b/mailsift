@@ -4,7 +4,9 @@
 {-# LANGUAGE GADTs                      #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE MultiParamTypeClasses      #-}
+{-# LANGUAGE OverloadedStrings          #-}
 {-# LANGUAGE QuasiQuotes                #-}
+{-# LANGUAGE RecordWildCards            #-}
 {-# LANGUAGE TemplateHaskell            #-}
 {-# LANGUAGE TypeFamilies               #-}
 
@@ -13,9 +15,12 @@ module Entities where
 import           Control.Monad.IO.Class      (MonadIO, liftIO)
 import           Control.Monad.Logger        (LoggingT, runStdoutLoggingT)
 import           Control.Monad.Trans.Control (MonadBaseControl)
+import           Data.Aeson                  (ToJSON, Value (Object), object, toJSON, (.=))
+import qualified Data.HashMap.Strict         as HM
 import           Data.Pool                   (Pool, withResource)
 import           Data.Text                   (Text)
 import           Data.Time.Clock             (UTCTime)
+import           Database.Persist            (Entity (Entity))
 import           Database.Persist.Postgresql (SqlBackend, SqlPersistT, runMigration, runSqlConn,
                                               runSqlPool)
 import           Database.Persist.Sql        (ConnectionPool)
@@ -27,7 +32,7 @@ import           Web.Spock                   (HasSpock, SpockConn, runQuery)
 share
   [mkPersist sqlSettings, mkMigrate "migrateAll"]
   [persistLowerCase|
-Mail json
+Mail
   fromAddress Text sql=from_address
   toAddress Text sql=to_address
   subject Text
@@ -43,6 +48,24 @@ Attachment json
   created UTCTime
   deriving Show
 |]
+
+
+instance ToJSON (Entity Mail) where
+  toJSON (Entity key value) = case toJSON value of
+    Object o -> Object $ HM.insert "id" (toJSON key) o
+    x        -> x
+
+
+instance ToJSON Mail where
+  toJSON Mail {..} =
+    object
+      [
+        "body" .= mailBody
+      , "created" .= mailCreated
+      , "from_address" .= mailFromAddress
+      , "subject" .= mailSubject
+      , "to_address" .= mailToAddress
+      ]
 
 
 migrate :: (MonadBaseControl IO m, MonadIO m) => ConnectionPool -> m ()
