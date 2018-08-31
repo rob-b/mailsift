@@ -25,7 +25,7 @@ import           Data.Time.Clock             (getCurrentTime)
 import qualified Data.Vector                 as V
 import           Database.Persist            (Filter (Filter),
                                               PersistFilter (BackendSpecificFilter),
-                                              SelectOpt (Desc), selectList)
+                                              SelectOpt (Desc, LimitTo), selectList)
 import           Database.Persist.Postgresql (SqlBackend)
 import           Database.Persist.Sql        (insert)
 import           Entities                    (Mail (Mail), run2, runSQL, runSQLAction)
@@ -130,7 +130,7 @@ authCheck (Just x) y = x == "Bearer " <> T.pack y
 emailList :: ListContains n User xs => AuthedApiAction (HVect xs) a
 emailList = do
   params <- paramsGet
-  res <- runSQL $ selectList (selectFilter params) [Desc E.MailId]
+  res <- runSQL $ selectList (selectFilter params) [Desc E.MailId, LimitTo 20]
   json $ dataWrapper res
 
 
