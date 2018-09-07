@@ -173,7 +173,13 @@ validateParams params = do
 
 
 paramToKeyValue :: (KeyValue kv) => (B.ByteString, B.ByteString) -> kv
-paramToKeyValue (key, value) = decodeUtf8 key .= decodeUtf8 value
+paramToKeyValue (key, value) = new key .= decodeUtf8 value
+
+
+new key
+  | key == "from" = "fromAddress"
+  | key == "to" = "toAddress"
+  | otherwise = decodeUtf8 key
 
 
 -- | Load the config and start the application
