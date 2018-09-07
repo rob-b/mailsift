@@ -11,7 +11,7 @@ import           Config                      (AppState, appStateAWSEnv, appState
                                               confPort, getConfig)
 import           Control.Monad.Except        (ExceptT, runExceptT, throwError)
 import           Control.Monad.IO.Class      (MonadIO, liftIO)
-import           Control.Monad.Logger        (LoggingT, logErrorN, logInfoN, runStdoutLoggingT)
+import           Control.Monad.Logger        (LoggingT, logErrorN, runStdoutLoggingT)
 import           Data.Aeson                  (KeyValue, ToJSON, Value (Object), object, (.=))
 import qualified Data.ByteString             as B
 import           Data.HVect                  (HVect ((:&:), HNil), ListContains)
@@ -40,6 +40,7 @@ import qualified Queue
 import           Text.Digestive              (Form, check, monadic)
 import           Text.Digestive.Aeson        (digestJSON, jsonErrors)
 import qualified Text.Digestive.Form         as D
+import           Text.Digestive.Types        (Result (Error, Success))
 import           Upload                      (uploadFiles)
 import           Web.Spock                   (ActionCtxT, SpockActionCtx, SpockM, get, getContext,
                                               getSpockPool, getState, header, json, middleware,
@@ -70,22 +71,34 @@ mailsiftConfig cfg = cfg { spc_errorHandler = errorHandler }
 emailForm :: (MonadIO m) => Form Text m Mail
 emailForm =
   Mail
-    <$> "fromAddress" D..: check "Not a valid email address." checkEmail (D.text Nothing)
-    <*> "toAddress" D..: check "Not a valid email address." checkEmail (D.text Nothing)
+    <$> "fromAddress" D..: validateEmail
+    <*> "toAddress" D..: validateEmail
     <*> "subject" D..: nonEmptyText
     <*> "text" D..: D.text Nothing
     <*> monadic (pure <$> liftIO getCurrentTime)
   where
     nonEmptyText = check "Cannot be empty." (not . T.null) (D.text Nothing)
 
-checkEmail :: Text -> Bool
-checkEmail email = isJust (T.find (== '@') email) && not (dumbIsZdEmail email) && not (isZdEmail email)
+
+validateEmail :: Monad m => Form Text m Text
+validateEmail = D.validate checker2 (D.text Nothing)
+
+
+checker2 :: Text -> Result Text Text
+checker2 t
+  | dumbIsZdEmail t = Error (t <> " is a zd testing account.")
+  | isZdEmail t = Error (t <> " is not a valid email address.")
+  | isJust (T.find (== '@') t) = Success t
+  | otherwise = Error (t <> " is not a valid email address.")
+
 
 isZdEmail :: Text -> Bool
 isZdEmail email = combiner $ (\pair -> snd pair == "@zerodeposit.com") . flip T.splitAt email <$> T.findIndex (== '@') email
 
+
 dumbIsZdEmail :: Text -> Bool
 dumbIsZdEmail = (== "ZD Testing<testing+accounting@zerodeposit.com>")
+
 
 combiner :: Maybe Bool -> Bool
 combiner Nothing      = False
@@ -176,6 +189,7 @@ paramToKeyValue :: (KeyValue kv) => (B.ByteString, B.ByteString) -> kv
 paramToKeyValue (key, value) = new key .= decodeUtf8 value
 
 
+new :: B.ByteString -> Text
 new key
   | key == "from" = "fromAddress"
   | key == "to" = "toAddress"
