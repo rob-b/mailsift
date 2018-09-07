@@ -101,6 +101,4 @@ lookupSettingSafe env def = do
 
 
 lookupSetting :: String -> String -> IO String
-lookupSetting key fallback = do
-  maybeValue <- lookupEnv key
-  pure $ fromMaybe fallback maybeValue
+lookupSetting key fallback = fromMaybe fallback <$>lookupEnv key

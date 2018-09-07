@@ -164,7 +164,6 @@ validateParams :: [(B.ByteString, B.ByteString)] -> ExceptT ErrorJson (LoggingT 
 validateParams params = do
   let dynJson = Object . fromList $ map paramToKeyValue params
   r <- digestJSON emailForm dynJson
-  logInfoN $ T.pack (show params)
   case r of
     (view, Nothing) -> do
       let err = jsonErrors view
