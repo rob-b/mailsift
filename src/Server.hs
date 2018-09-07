@@ -70,8 +70,8 @@ mailsiftConfig cfg = cfg { spc_errorHandler = errorHandler }
 emailForm :: (MonadIO m) => Form Text m Mail
 emailForm =
   Mail
-    <$> "from" D..: check "Not a valid email address." checkEmail (D.text Nothing)
-    <*> "to" D..: check "Not a valid email address." checkEmail (D.text Nothing)
+    <$> "fromAddress" D..: check "Not a valid email address." checkEmail (D.text Nothing)
+    <*> "toAddress" D..: check "Not a valid email address." checkEmail (D.text Nothing)
     <*> "subject" D..: nonEmptyText
     <*> "text" D..: D.text Nothing
     <*> monadic (pure <$> liftIO getCurrentTime)
