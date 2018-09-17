@@ -3,7 +3,8 @@ module Config where
 
 import           Control.Concurrent.STM.TBQueue       (TBQueue)
 import           Control.Lens                         (set, (<&>))
-import           Control.Monad.Logger                 (runNoLoggingT, runStdoutLoggingT)
+import           Control.Monad.Logger                 (LogLevel (LevelDebug), filterLogger,
+                                                       runNoLoggingT, runStdoutLoggingT)
 import           Data.Maybe                           (fromMaybe)
 import qualified Data.Text                            as T
 import           Data.Text.Encoding                   (encodeUtf8)
@@ -55,7 +56,7 @@ getConfig = do
   let appState = AppState {appStateToken = token, appStateAWSEnv = awsEnv, appStateQueue = queue}
   pool <-
     case env of
-      Production  -> runStdoutLoggingT (DB.createPostgresqlPool s 4)
+      Production  -> runStdoutLoggingT $ filterLogger shouldLog (DB.createPostgresqlPool s 4)
       Development -> runStdoutLoggingT (DB.createPostgresqlPool s 1)
       Test        -> runNoLoggingT (DB.createPostgresqlPool s 1)
   pure
@@ -66,6 +67,11 @@ getConfig = do
     , confAppLogger = logger
     , confAppState = appState
     }
+
+
+shouldLog :: p -> LogLevel -> Bool
+shouldLog _ LevelDebug = False
+shouldLog _ _          = True
 
 
 createConnectionString :: [(T.Text, T.Text)] -> DB.ConnectionString
