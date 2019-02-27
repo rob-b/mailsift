@@ -178,7 +178,9 @@ newtype ErrorJson = ErrorJson Value
 validateParams :: [(B.ByteString, B.ByteString)] -> ExceptT ErrorJson (LoggingT IO) Mail
 validateParams params =
   case mapM paramToKeyValue params of
-    Left failure -> throwError $ ErrorJson failure
+    Left failure -> do
+      logErrorN $ "Cannot parse POST params: " <> (T.pack . show $ failure)
+      throwError $ ErrorJson failure
     Right keyValues -> do
       let dynJson = Object . fromList $ keyValues
       r <- digestJSON emailForm dynJson
