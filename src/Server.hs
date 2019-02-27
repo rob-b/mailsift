@@ -1,8 +1,9 @@
-{-# LANGUAGE DataKinds         #-}
-{-# LANGUAGE FlexibleContexts  #-}
-{-# LANGUAGE GADTs             #-}
-{-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE TypeOperators     #-}
+{-# LANGUAGE DataKinds           #-}
+{-# LANGUAGE FlexibleContexts    #-}
+{-# LANGUAGE GADTs               #-}
+{-# LANGUAGE OverloadedStrings   #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeOperators       #-}
 
 module Server where
 
@@ -12,7 +13,8 @@ import           Config                      (AppState, appStateAWSEnv, appState
 import           Control.Monad.Except        (ExceptT, runExceptT, throwError)
 import           Control.Monad.IO.Class      (MonadIO, liftIO)
 import           Control.Monad.Logger        (LoggingT, logErrorN, runStdoutLoggingT)
-import           Data.Aeson                  (KeyValue, ToJSON, Value (Object), object, (.=))
+import           Data.Aeson                  (KeyValue, ToJSON, Value (Object, String), object,
+                                              (.=))
 import qualified Data.ByteString             as B
 import           Data.HVect                  (HVect ((:&:), HNil), ListContains)
 import           Data.Maybe                  (isJust, mapMaybe)
@@ -20,7 +22,7 @@ import           Data.Monoid                 ((<>))
 import           Data.String                 (IsString)
 import           Data.Text                   (Text)
 import qualified Data.Text                   as T
-import           Data.Text.Encoding          (decodeUtf8)
+import           Data.Text.Encoding          (decodeUtf8, decodeUtf8')
 import           Data.Time.Clock             (getCurrentTime)
 import qualified Data.Vector                 as V
 import           Database.Persist            (Filter (Filter),
@@ -174,19 +176,25 @@ newtype ErrorJson = ErrorJson Value
 
 
 validateParams :: [(B.ByteString, B.ByteString)] -> ExceptT ErrorJson (LoggingT IO) Mail
-validateParams params = do
-  let dynJson = Object . fromList $ map paramToKeyValue params
-  r <- digestJSON emailForm dynJson
-  case r of
-    (view, Nothing) -> do
-      let err = jsonErrors view
-      logErrorN . T.pack . show $ err
-      throwError . ErrorJson $ err
-    (_, Just email) -> pure email
+validateParams params =
+  case mapM paramToKeyValue params of
+    Left failure -> throwError $ ErrorJson failure
+    Right keyValues -> do
+      let dynJson = Object . fromList $ keyValues
+      r <- digestJSON emailForm dynJson
+      case r of
+        (view, Nothing) -> do
+          let err = jsonErrors view
+          logErrorN . T.pack . show $ err
+          throwError . ErrorJson $ err
+        (_, Just email) -> pure email
 
 
-paramToKeyValue :: (KeyValue kv) => (B.ByteString, B.ByteString) -> kv
-paramToKeyValue (key, value) = new key .= decodeUtf8 value
+paramToKeyValue :: (KeyValue kv) => (B.ByteString, B.ByteString) -> Either Value kv
+paramToKeyValue (key, value) =
+  case decodeUtf8' value of
+    Left err     -> Left . String . T.pack . show $ err
+    Right value' -> Right $ new key .= value'
 
 
 new :: B.ByteString -> Text
