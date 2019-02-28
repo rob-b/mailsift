@@ -13,8 +13,7 @@ import           Config                      (AppState, appStateAWSEnv, appState
 import           Control.Monad.Except        (ExceptT, runExceptT, throwError)
 import           Control.Monad.IO.Class      (MonadIO, liftIO)
 import           Control.Monad.Logger        (LoggingT, logErrorN, runStdoutLoggingT)
-import           Data.Aeson                  (KeyValue, ToJSON, Value (Object, String), object,
-                                              (.=))
+import           Data.Aeson                  (KeyValue, ToJSON, Value (Object), object, (.=))
 import qualified Data.ByteString             as B
 import           Data.HVect                  (HVect ((:&:), HNil), ListContains)
 import           Data.Maybe                  (isJust, mapMaybe)
@@ -195,7 +194,7 @@ validateParams params =
 paramToKeyValue :: (KeyValue kv) => (B.ByteString, B.ByteString) -> Either Value kv
 paramToKeyValue (key, value) =
   case decodeUtf8' value of
-    Left err     -> Left . String . T.pack . show $ err
+    Left err     -> Left $ object ["key" .= show key, "value" .= show value, "reason" .= show err]
     Right value' -> Right $ new key .= value'
 
 
