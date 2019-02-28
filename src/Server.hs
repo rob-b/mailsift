@@ -178,6 +178,10 @@ validateParams :: [(B.ByteString, B.ByteString)] -> ExceptT ErrorJson (LoggingT 
 validateParams params =
   case mapM paramToKeyValue params of
     Left failure -> do
+      let charsets = filter (\(a, _) -> a == "charsets") params
+      logErrorN . T.pack . show $ charsets
+      let headers = filter (\(a, _) -> a == "headers") params
+      logErrorN . T.pack . show $ headers
       logErrorN $ "Cannot parse POST params: " <> (T.pack . show $ failure)
       throwError $ ErrorJson failure
     Right keyValues -> do
