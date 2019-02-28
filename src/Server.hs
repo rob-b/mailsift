@@ -194,7 +194,7 @@ validateParams params =
 paramToKeyValue :: (KeyValue kv) => (B.ByteString, B.ByteString) -> Either Value kv
 paramToKeyValue (key, value) =
   case decodeUtf8' value of
-    Left err     -> Left $ object ["key" .= show key, "value" .= show value, "reason" .= show err]
+    Left err     -> Left $ object ["key" .= show key, "value" .= take 50 (show value), "reason" .= show err]
     Right value' -> Right $ new key .= value'
 
 
