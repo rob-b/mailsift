@@ -21,7 +21,7 @@ import           Data.Monoid                 ((<>))
 import           Data.String                 (IsString)
 import           Data.Text                   (Text)
 import qualified Data.Text                   as T
-import           Data.Text.Encoding          (decodeUtf8, decodeUtf8')
+import           Data.Text.Encoding          (decodeLatin1, decodeUtf8, decodeUtf8')
 import           Data.Time.Clock             (getCurrentTime)
 import qualified Data.Vector                 as V
 import           Database.Persist            (Filter (Filter),
@@ -175,25 +175,24 @@ newtype ErrorJson = ErrorJson Value
 
 
 validateParams :: [(B.ByteString, B.ByteString)] -> ExceptT ErrorJson (LoggingT IO) Mail
-validateParams params =
-  case mapM paramToKeyValue params of
-    Left failure -> throwError $ ErrorJson failure
-    Right keyValues -> do
-      let dynJson = Object . fromList $ keyValues
-      r <- digestJSON emailForm dynJson
-      case r of
-        (view, Nothing) -> do
-          let err = jsonErrors view
-          logErrorN . T.pack . show $ err
-          throwError . ErrorJson $ err
-        (_, Just email) -> pure email
+validateParams params = do
+  let keyValues = map paramToKeyValue params
+  let dynJson = Object . fromList $ keyValues
+  r <- digestJSON emailForm dynJson
+  case r of
+    (view, Nothing) -> do
+      let err = jsonErrors view
+      logErrorN . T.pack . show $ err
+      throwError . ErrorJson $ err
+    (_, Just email) -> pure email
 
 
-paramToKeyValue :: (KeyValue kv) => (B.ByteString, B.ByteString) -> Either Value kv
-paramToKeyValue (key, value) =
-  case decodeUtf8' value of
-    Left err     -> Left $ object ["key" .= show key, "value" .= take 50 (show value), "reason" .= show err]
-    Right value' -> Right $ new key .= value'
+paramToKeyValue :: (KeyValue kv) => (B.ByteString, B.ByteString) -> kv
+paramToKeyValue (key, value) = new key .= decodeValue value
+
+
+decodeValue :: B.ByteString -> Text
+decodeValue v = either (const (decodeLatin1 v)) id (decodeUtf8' v)
 
 
 new :: B.ByteString -> Text
