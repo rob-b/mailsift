@@ -47,6 +47,7 @@ library:
   - async
   - persistent-migration
   - unordered-containers
+  - iconv
 executables:
   mailsift:
     main: Main.hs

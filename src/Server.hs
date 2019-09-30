@@ -1,4 +1,5 @@
 {-# LANGUAGE DataKinds           #-}
+{-# LANGUAGE DeriveGeneric       #-}
 {-# LANGUAGE FlexibleContexts    #-}
 {-# LANGUAGE GADTs               #-}
 {-# LANGUAGE OverloadedStrings   #-}
@@ -7,21 +8,27 @@
 
 module Server where
 
+
+import           Codec.Text.IConv            (ConversionError, convertStrictly,
+                                              reportConversionError)
 import           Config                      (AppState, appStateAWSEnv, appStateQueue,
                                               appStateToken, confAppLogger, confAppState, confPool,
                                               confPort, getConfig)
 import           Control.Monad.Except        (ExceptT, runExceptT, throwError)
 import           Control.Monad.IO.Class      (MonadIO, liftIO)
 import           Control.Monad.Logger        (LoggingT, logErrorN, runStdoutLoggingT)
-import           Data.Aeson                  (KeyValue, ToJSON, Value (Object), object, (.=))
+import           Data.Aeson                  (FromJSON, KeyValue, ToJSON, Value (Object, String),
+                                              decodeStrict, object, parseJSON, withObject, (.:),
+                                              (.=))
 import qualified Data.ByteString             as B
+import qualified Data.ByteString.Lazy        as BL
 import           Data.HVect                  (HVect ((:&:), HNil), ListContains)
-import           Data.Maybe                  (isJust, mapMaybe)
+import           Data.Maybe                  (fromMaybe, isJust, mapMaybe)
 import           Data.Monoid                 ((<>))
 import           Data.String                 (IsString)
 import           Data.Text                   (Text)
 import qualified Data.Text                   as T
-import           Data.Text.Encoding          (decodeLatin1, decodeUtf8, decodeUtf8')
+import           Data.Text.Encoding          (decodeUtf8)
 import           Data.Time.Clock             (getCurrentTime)
 import qualified Data.Vector                 as V
 import           Database.Persist            (Filter (Filter),
@@ -32,6 +39,7 @@ import           Database.Persist.Sql        (insert)
 import           Entities                    (Mail (Mail), run2, runSQL, runSQLAction)
 import qualified Entities                    as E
 import           GHC.Exts                    (fromList)
+import           GHC.Generics                (Generic)
 import           Migration                   (doMigration)
 import           Network.HTTP.Types          (Status (Status))
 import           Network.HTTP.Types.Status   (status201, status401, status422)
@@ -174,25 +182,49 @@ dataWrapper a = object ["data" .= a]
 newtype ErrorJson = ErrorJson Value
 
 
-validateParams :: [(B.ByteString, B.ByteString)] -> ExceptT ErrorJson (LoggingT IO) Mail
-validateParams params = do
-  let keyValues = map paramToKeyValue params
-  let dynJson = Object . fromList $ keyValues
-  r <- digestJSON emailForm dynJson
-  case r of
-    (view, Nothing) -> do
-      let err = jsonErrors view
-      logErrorN . T.pack . show $ err
-      throwError . ErrorJson $ err
-    (_, Just email) -> pure email
+data Charset = Charset
+  { toCharset      :: String
+  , htmlCharset    :: String
+  , subjectCharset :: String
+  , fromCharset    :: String
+  , textCharset    :: String
+  } deriving (Show, Generic)
 
 
-paramToKeyValue :: (KeyValue kv) => (B.ByteString, B.ByteString) -> kv
-paramToKeyValue (key, value) = new key .= decodeValue value
+defaultCharset :: Charset
+defaultCharset = Charset {toCharset = "UTF-8", htmlCharset = "iso-8859-1", subjectCharset = "UTF-8", fromCharset = "UTF-8", textCharset = "iso-8859-1"}
 
 
-decodeValue :: B.ByteString -> Text
-decodeValue v = either (const (decodeLatin1 v)) id (decodeUtf8' v)
+instance FromJSON Charset where
+  parseJSON =
+    withObject "charset" $ \v ->
+      Charset <$> v .: "to" <*> v .: "html" <*> v .: "subject" <*> v .: "from" <*> v .: "text"
+
+
+loadSampleCharset :: IO (Maybe Charset)
+loadSampleCharset = decodeStrict <$> B.readFile "charsets.json"
+
+
+mkCharsetFromParams :: [(B.ByteString, B.ByteString)] -> Maybe Charset
+mkCharsetFromParams params = decodeStrict =<< lookup "charsets" params
+
+
+note :: a -> Maybe b -> Either a b
+note a = maybe (Left a) Right
+
+
+finaliseParams
+  :: (KeyValue kv)
+  => [Either ConversionError (B.ByteString, B.ByteString)] -> [Either ConversionError kv]
+finaliseParams params = map finalise params
+  where
+    finalise
+      :: (KeyValue kv)
+      => Either a (B.ByteString, B.ByteString) -> Either a kv
+    finalise param =
+      case param of
+        Left e             -> Left e
+        Right (key, value) -> Right (new key .= decodeUtf8 value)
 
 
 new :: B.ByteString -> Text
@@ -200,6 +232,66 @@ new key
   | key == "from" = "fromAddress"
   | key == "to" = "toAddress"
   | otherwise = decodeUtf8 key
+
+
+paramsConversion
+  :: (KeyValue kv)
+  => Charset -> [(B.ByteString, B.ByteString)] -> [Either ConversionError kv]
+paramsConversion charset params = finaliseParams $ decodeParams charset params
+
+
+validateParams :: [(B.ByteString, B.ByteString)] -> ExceptT ErrorJson (LoggingT IO) Mail
+validateParams params = do
+  let charset = fromMaybe defaultCharset $ mkCharsetFromParams params
+  let encodedParams = sequence $ paramsConversion charset params
+  case encodedParams of
+    Left conversionError -> do
+      let failure = show . reportConversionError $ conversionError
+      let charsets = filter (\(a, _) -> a == "charsets") params
+      logErrorN . T.pack . show $ charsets
+      let headers = filter (\(a, _) -> a == "headers") params
+      logErrorN . T.pack . show $ headers
+      logErrorN $ "Cannot parse POST params: " <> T.pack failure
+      throwError $ ErrorJson $ String $ T.pack failure
+    Right params' -> do
+      let dynJson = Object . fromList $ params'
+      r <- digestJSON emailForm dynJson
+      case r of
+        (view, Nothing) -> do
+          let err = jsonErrors view
+          logErrorN . T.pack . show $ err
+          throwError . ErrorJson $ err
+        (_, Just email) -> pure email
+
+
+decodeParams
+  :: (IsString a, Eq a)
+  => Charset
+  -> [(a, B.ByteString)]
+  -> [Either ConversionError (a, B.ByteString)]
+decodeParams charset params = for params $ \param -> uncurry flippedDecode param
+  where
+    for = flip map
+    doConversion key value fromEncoding =
+      case convertStrictly fromEncoding "UTF-8" (BL.fromStrict value) of
+        Left b                -> Left (key, BL.toStrict b)
+        Right conversionError -> Right conversionError
+
+    flippedDecode :: (IsString a, Eq a) => a -> B.ByteString -> Either ConversionError (a, B.ByteString)
+    flippedDecode key value = eitherFlip $ decode key value
+
+    decode :: (IsString a, Eq a) => a -> B.ByteString -> Either (a, B.ByteString) ConversionError
+    decode key value
+      | key == "to" = doConversion key value (toCharset charset)
+      | key == "html" = doConversion key value (htmlCharset charset)
+      | key == "subject" = doConversion key value (subjectCharset charset)
+      | key == "from" = doConversion key value (fromCharset charset)
+      | key == "text" = doConversion key value (textCharset charset)
+      | otherwise = Left (key, value)
+
+
+eitherFlip :: Either a b -> Either b a
+eitherFlip = either Right Left
 
 
 -- | Load the config and start the application
