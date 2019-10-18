@@ -21,8 +21,6 @@ library:
   - Spock
   - aeson
   - bytestring
-  - digestive-functors
-  - digestive-functors-aeson
   - http-types
   - monad-logger
   - monad-control
@@ -48,6 +46,9 @@ library:
   - persistent-migration
   - unordered-containers
   - iconv
+  - monad-validate
+  - unliftio-core
+  - hashable
 executables:
   mailsift:
     main: Main.hs

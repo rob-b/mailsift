@@ -5,20 +5,6 @@
 
 packages:
 - completed:
-    hackage: digestive-functors-0.8.3.0@sha256:090895c10f8a20ed834b89bb8ac6aa9512367b614a06316bf6dcd2f0ab6c165a,3041
-    pantry-tree:
-      size: 1682
-      sha256: 2f1a567ce6b73f0c8b31f4ea297f2b102107c96e8167a6ed68e0702d1c469b4e
-  original:
-    hackage: digestive-functors-0.8.3.0
-- completed:
-    hackage: digestive-functors-aeson-1.1.22@sha256:81984a1917b3da11a39fae39241b867b4ca2b32b581585dec2d1d0de27ca7169,1584
-    pantry-tree:
-      size: 345
-      sha256: 1ac61ae71cd9a2cef542e94a9122b37efbcf95b639c0b1da74b5d911e685bbac
-  original:
-    hackage: digestive-functors-aeson-1.1.22
-- completed:
     hackage: heroku-0.1.2.3@sha256:8a5f7b9a0a60178a6edb1e5e8cbcdb8d5ffb407939bc30deb8ae7d05e879e9a7,928
     pantry-tree:
       size: 497
@@ -39,9 +25,79 @@ packages:
       sha256: a75ca947afd625a2db5fa111f226fee5528d3ef9109d6214d6388272e2e4ce14
   original:
     hackage: persistent-migration-0.1.0
+- completed:
+    hackage: monad-validate-1.2.0.0@sha256:9850f408431098b28806dd464b6825a88a0b56c84f380d7fe0454c1df9d6f881,3505
+    pantry-tree:
+      size: 713
+      sha256: 8e049bd12ce2bd470909578f2ee8eb80b89d5ff88860afa30e29dd4eafecfa3e
+  original:
+    hackage: monad-validate-1.2.0.0@sha256:9850f408431098b28806dd464b6825a88a0b56c84f380d7fe0454c1df9d6f881,3505
+- completed:
+    hackage: Spock-0.13.0.0@sha256:163ef2698fed8f5801428d8dbe794fd126415a5ff3304b227750fdc4037497be,3745
+    pantry-tree:
+      size: 1118
+      sha256: 9ddd674e7a88e8495727a1857976ee3e5ef5dfa733e379416eb12a42781d586c
+  original:
+    hackage: Spock-0.13.0.0@sha256:163ef2698fed8f5801428d8dbe794fd126415a5ff3304b227750fdc4037497be,3745
+- completed:
+    hackage: amazonka-1.6.1@sha256:b2a50a6b87908efa1e1793868495e9b252cbcf99e2d7036b21f9fe1e12dc413d,3420
+    pantry-tree:
+      size: 992
+      sha256: 27e7e545070d3bdb3dc61159b38dcf2229483d083d0020ba446f31ba537a83e3
+  original:
+    hackage: amazonka-1.6.1@sha256:b2a50a6b87908efa1e1793868495e9b252cbcf99e2d7036b21f9fe1e12dc413d,3420
+- completed:
+    hackage: amazonka-core-1.6.1@sha256:ad6b06eb5b6847cbfbe4201e78b3fdb7818a42da061c5d0f8af4fdf2494e44b5,4957
+    pantry-tree:
+      size: 3438
+      sha256: a1100a5e07e858cdf60ab52305568e26feef56d360777a6a0a79505b1ae0fb67
+  original:
+    hackage: amazonka-core-1.6.1@sha256:ad6b06eb5b6847cbfbe4201e78b3fdb7818a42da061c5d0f8af4fdf2494e44b5,4957
+- completed:
+    hackage: amazonka-s3-1.6.1@sha256:9d07240fca59ad5197fb614ce3051e701e4951e6d4625a2dab4a9c17a1900194,6317
+    pantry-tree:
+      size: 18385
+      sha256: 5cab233d241615764d9fd6927bc397f02887154450a9932c38c2e17ea86d79bc
+  original:
+    hackage: amazonka-s3-1.6.1@sha256:9d07240fca59ad5197fb614ce3051e701e4951e6d4625a2dab4a9c17a1900194,6317
+- completed:
+    hackage: Spock-core-0.13.0.0@sha256:06e007f23c47bdda52d2927da54160d73f1b6f51a977f3ca9087275698db8f0a,3400
+    pantry-tree:
+      size: 1113
+      sha256: 86140298020f68bb09d07b26a6a6f1666fc3a02715d7986b09150727247a1a84
+  original:
+    hackage: Spock-core-0.13.0.0@sha256:06e007f23c47bdda52d2927da54160d73f1b6f51a977f3ca9087275698db8f0a,3400
+- completed:
+    hackage: http-client-0.5.14@sha256:4880b27d6741e331454a1d4c887d96ce3d7d625322c8433983a4b1cd08538577,5348
+    pantry-tree:
+      size: 2457
+      sha256: 02bcffba9cad572fefb4640f5fc9be68e770b32ab73efcac649db20290994c6d
+  original:
+    hackage: http-client-0.5.14@sha256:4880b27d6741e331454a1d4c887d96ce3d7d625322c8433983a4b1cd08538577,5348
+- completed:
+    hackage: reroute-0.5.0.0@sha256:3360747cdc700c9808a38bff48b75926efa443d4af282396082329a218a8d9d3,2446
+    pantry-tree:
+      size: 660
+      sha256: 52afcff0a5dba2fb746be4fa8cfa56cf774272872b61130537fe0e7ad463c0cd
+  original:
+    hackage: reroute-0.5.0.0@sha256:3360747cdc700c9808a38bff48b75926efa443d4af282396082329a218a8d9d3,2446
+- completed:
+    hackage: stm-containers-0.2.16@sha256:e98efa8dcf0045ea8a78a04b4e2763cf2d8bc33aad0750e2f30a67f8f4e933b1,8454
+    pantry-tree:
+      size: 1564
+      sha256: 00d9830990f351bda6b5322ec4adab4386d0a36d3f1a997ec378434c2923f376
+  original:
+    hackage: stm-containers-0.2.16@sha256:e98efa8dcf0045ea8a78a04b4e2763cf2d8bc33aad0750e2f30a67f8f4e933b1,8454
+- completed:
+    hackage: focus-0.1.5.2@sha256:fc5c76a5be3a9a1c456106d6f389939299c7e05a1a24938b909f043e36a3e37b,1519
+    pantry-tree:
+      size: 206
+      sha256: b8371b82b496602010a3a5b8e33a0e9108a5a3c70d99f842859bae89face740c
+  original:
+    hackage: focus-0.1.5.2@sha256:fc5c76a5be3a9a1c456106d6f389939299c7e05a1a24938b909f043e36a3e37b,1519
 snapshots:
 - completed:
-    size: 568435
-    url: https://raw.githubusercontent.com/commercialhaskell/stackage-snapshots/master/lts/10/4.yaml
-    sha256: 65ac0604c29a81f0aef5dff499eb9d6c5cdd7dbfedcfdad6b3f0a9e75b422cbe
-  original: lts-10.4
+    size: 523448
+    url: https://raw.githubusercontent.com/commercialhaskell/stackage-snapshots/master/lts/14/1.yaml
+    sha256: 0045b9bae36c3bb2dd374c29b586389845af1557eea0423958d152fc500d4fbf
+  original: lts-14.1

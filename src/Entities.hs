@@ -13,8 +13,8 @@
 module Entities where
 
 import           Control.Monad.IO.Class      (MonadIO, liftIO)
+import           Control.Monad.IO.Unlift     (MonadUnliftIO)
 import           Control.Monad.Logger        (LoggingT, runStdoutLoggingT)
-import           Control.Monad.Trans.Control (MonadBaseControl)
 import           Data.Aeson                  (ToJSON, Value (Object), object, toJSON, (.=))
 import qualified Data.HashMap.Strict         as HM
 import           Data.Pool                   (Pool, withResource)
@@ -68,7 +68,7 @@ instance ToJSON Mail where
       ]
 
 
-migrate :: (MonadBaseControl IO m, MonadIO m) => ConnectionPool -> m ()
+migrate :: (MonadUnliftIO m, MonadIO m) => ConnectionPool -> m ()
 migrate pool = runStdoutLoggingT $ runSqlPool (runMigration migrateAll) pool
 
 
@@ -77,7 +77,7 @@ runSQL action = runQuery $ \conn -> runStdoutLoggingT $ runSqlConn action conn
 
 
 run2
-  :: (MonadBaseControl IO m, MonadIO m)
+  :: (MonadUnliftIO m, MonadIO m)
   => SqlBackend -> SqlPersistT (LoggingT m) a -> m a
 run2 conn action = runStdoutLoggingT $ runSqlConn action conn
 

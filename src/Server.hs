@@ -1,6 +1,6 @@
 {-# LANGUAGE DataKinds           #-}
-{-# LANGUAGE DeriveGeneric       #-}
 {-# LANGUAGE FlexibleContexts    #-}
+{-# LANGUAGE FlexibleInstances   #-}
 {-# LANGUAGE GADTs               #-}
 {-# LANGUAGE OverloadedStrings   #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -9,21 +9,19 @@
 module Server where
 
 
-import           Codec.Text.IConv            (ConversionError, convertStrictly,
-                                              reportConversionError)
+
+import           Codec.Text.IConv            (reportConversionError)
 import           Config                      (AppState, appStateAWSEnv, appStateQueue,
                                               appStateToken, confAppLogger, confAppState, confPool,
                                               confPort, getConfig)
 import           Control.Monad.Except        (ExceptT, runExceptT, throwError)
 import           Control.Monad.IO.Class      (MonadIO, liftIO)
 import           Control.Monad.Logger        (LoggingT, logErrorN, runStdoutLoggingT)
-import           Data.Aeson                  (FromJSON, KeyValue, ToJSON, Value (Object, String),
-                                              decodeStrict, object, parseJSON, withObject, (.:),
+import           Data.Aeson                  (ToJSON, Value (Object, String), decodeStrict, object,
                                               (.=))
 import qualified Data.ByteString             as B
-import qualified Data.ByteString.Lazy        as BL
 import           Data.HVect                  (HVect ((:&:), HNil), ListContains)
-import           Data.Maybe                  (fromMaybe, isJust, mapMaybe)
+import           Data.Maybe                  (fromMaybe, mapMaybe)
 import           Data.Monoid                 ((<>))
 import           Data.String                 (IsString)
 import           Data.Text                   (Text)
@@ -36,21 +34,19 @@ import           Database.Persist            (Filter (Filter),
                                               SelectOpt (Desc, LimitTo), selectList)
 import           Database.Persist.Postgresql (SqlBackend)
 import           Database.Persist.Sql        (insert)
+import           Encoding                    (paramsConversion)
 import           Entities                    (Mail (Mail), run2, runSQL, runSQLAction)
 import qualified Entities                    as E
 import           GHC.Exts                    (fromList)
-import           GHC.Generics                (Generic)
 import           Migration                   (doMigration)
 import           Network.HTTP.Types          (Status (Status))
 import           Network.HTTP.Types.Status   (status201, status401, status422)
 import           Network.Wai.Parse           (defaultParseRequestBodyOptions, lbsBackEnd,
                                               parseRequestBodyEx)
 import qualified Queue
-import           Text.Digestive              (Form, check, monadic)
-import           Text.Digestive.Aeson        (digestJSON, jsonErrors)
-import qualified Text.Digestive.Form         as D
-import           Text.Digestive.Types        (Result (Error, Success))
+import           Types                       (Charset, defaultCharset)
 import           Upload                      (uploadFiles)
+import qualified Validation                  as Validation
 import           Web.Spock                   (ActionCtxT, SpockActionCtx, SpockM, get, getContext,
                                               getSpockPool, getState, header, json, middleware,
                                               paramsGet, post, prehook, request, root, runSpock,
@@ -73,46 +69,21 @@ errorHandler status = json $ prepareError status
       in object ["errors" .= inner]
 
 
-mailsiftConfig :: SpockCfg conn sess st -> SpockCfg conn sess st
-mailsiftConfig cfg = cfg { spc_errorHandler = errorHandler }
+-- | Query helpers
+selectFilter :: (IsString a, Eq a) => [(a, Text)] -> [Filter Mail]
+selectFilter = mapMaybe checkF
 
 
-emailForm :: (MonadIO m) => Form Text m Mail
-emailForm =
-  Mail
-    <$> "fromAddress" D..: validateEmail
-    <*> "toAddress" D..: validateEmail
-    <*> "subject" D..: nonEmptyText
-    <*> "text" D..: D.text Nothing
-    <*> monadic (pure <$> liftIO getCurrentTime)
-  where
-    nonEmptyText = check "Cannot be empty." (not . T.null) (D.text Nothing)
+checkF :: (Eq a, IsString a) => (a, Text) -> Maybe (Filter Mail)
+checkF (key, value)
+  | key == "subject" = Just (like E.MailSubject value)
+  | key == "from" = Just (like E.MailFromAddress value)
+  | key == "to" = Just (like E.MailToAddress value)
+  | otherwise = Nothing
 
 
-validateEmail :: Monad m => Form Text m Text
-validateEmail = D.validate checker2 (D.text Nothing)
-
-
-checker2 :: Text -> Result Text Text
-checker2 t
-  | dumbIsZdEmail t = Error (t <> " is a zd testing account.")
-  | isZdEmail t = Error (t <> " is not a valid email address.")
-  | isJust (T.find (== '@') t) = Success t
-  | otherwise = Error (t <> " is not a valid email address.")
-
-
-isZdEmail :: Text -> Bool
-isZdEmail email = combiner $ (\pair -> snd pair == "@zerodeposit.com") . flip T.splitAt email <$> T.findIndex (== '@') email
-
-
-dumbIsZdEmail :: Text -> Bool
-dumbIsZdEmail = (== "ZD Testing<testing+accounting@zerodeposit.com>")
-
-
-combiner :: Maybe Bool -> Bool
-combiner Nothing      = False
-combiner (Just False) = False
-combiner (Just True)  = True
+like :: E.EntityField record Text -> Text -> Filter record
+like field val = Filter field (Left $ T.concat ["%", val, "%"]) (BackendSpecificFilter "ilike")
 
 
 -- | Routing
@@ -180,66 +151,19 @@ dataWrapper a = object ["data" .= a]
 
 
 newtype ErrorJson = ErrorJson Value
-
-
-data Charset = Charset
-  { toCharset      :: String
-  , htmlCharset    :: String
-  , subjectCharset :: String
-  , fromCharset    :: String
-  , textCharset    :: String
-  } deriving (Show, Generic)
-
-
-defaultCharset :: Charset
-defaultCharset = Charset {toCharset = "UTF-8", htmlCharset = "iso-8859-1", subjectCharset = "UTF-8", fromCharset = "UTF-8", textCharset = "iso-8859-1"}
-
-
-instance FromJSON Charset where
-  parseJSON =
-    withObject "charset" $ \v ->
-      Charset <$> v .: "to" <*> v .: "html" <*> v .: "subject" <*> v .: "from" <*> v .: "text"
+-- data ErrorJson = ErrorJson Value
 
 
 loadSampleCharset :: IO (Maybe Charset)
 loadSampleCharset = decodeStrict <$> B.readFile "charsets.json"
 
 
+-- | Select the charset as specified by the request parameters
 mkCharsetFromParams :: [(B.ByteString, B.ByteString)] -> Maybe Charset
 mkCharsetFromParams params = decodeStrict =<< lookup "charsets" params
 
 
-note :: a -> Maybe b -> Either a b
-note a = maybe (Left a) Right
-
-
-finaliseParams
-  :: (KeyValue kv)
-  => [Either ConversionError (B.ByteString, B.ByteString)] -> [Either ConversionError kv]
-finaliseParams params = map finalise params
-  where
-    finalise
-      :: (KeyValue kv)
-      => Either a (B.ByteString, B.ByteString) -> Either a kv
-    finalise param =
-      case param of
-        Left e             -> Left e
-        Right (key, value) -> Right (new key .= decodeUtf8 value)
-
-
-new :: B.ByteString -> Text
-new key
-  | key == "from" = "fromAddress"
-  | key == "to" = "toAddress"
-  | otherwise = decodeUtf8 key
-
-
-paramsConversion
-  :: (KeyValue kv)
-  => Charset -> [(B.ByteString, B.ByteString)] -> [Either ConversionError kv]
-paramsConversion charset params = finaliseParams $ decodeParams charset params
-
-
+-- | validate POST params and convert to Mail instance if possible
 validateParams :: [(B.ByteString, B.ByteString)] -> ExceptT ErrorJson (LoggingT IO) Mail
 validateParams params = do
   let charset = fromMaybe defaultCharset $ mkCharsetFromParams params
@@ -254,44 +178,28 @@ validateParams params = do
       logErrorN $ "Cannot parse POST params: " <> T.pack failure
       throwError $ ErrorJson $ String $ T.pack failure
     Right params' -> do
-      let dynJson = Object . fromList $ params'
-      r <- digestJSON emailForm dynJson
-      case r of
-        (view, Nothing) -> do
-          let err = jsonErrors view
-          logErrorN . T.pack . show $ err
-          throwError . ErrorJson $ err
-        (_, Just email) -> pure email
+      case Validation.validateParams params' of
+        Left errs -> do
+          logErrorN . T.pack . show $ errs
+          throwError . ErrorJson $ Validation.errorInfoToValue errs
+        Right _ -> do
+          (Just m) <- liftIO $ mailFromParams params'
+          pure m
 
 
-decodeParams
-  :: (IsString a, Eq a)
-  => Charset
-  -> [(a, B.ByteString)]
-  -> [Either ConversionError (a, B.ByteString)]
-decodeParams charset params = for params $ \param -> uncurry flippedDecode param
-  where
-    for = flip map
-    doConversion key value fromEncoding =
-      case convertStrictly fromEncoding "UTF-8" (BL.fromStrict value) of
-        Left b                -> Left (key, BL.toStrict b)
-        Right conversionError -> Right conversionError
-
-    flippedDecode :: (IsString a, Eq a) => a -> B.ByteString -> Either ConversionError (a, B.ByteString)
-    flippedDecode key value = eitherFlip $ decode key value
-
-    decode :: (IsString a, Eq a) => a -> B.ByteString -> Either (a, B.ByteString) ConversionError
-    decode key value
-      | key == "to" = doConversion key value (toCharset charset)
-      | key == "html" = doConversion key value (htmlCharset charset)
-      | key == "subject" = doConversion key value (subjectCharset charset)
-      | key == "from" = doConversion key value (fromCharset charset)
-      | key == "text" = doConversion key value (textCharset charset)
-      | otherwise = Left (key, value)
+mailFromParams :: (MonadIO m) => [(Text, Text)] -> m (Maybe Mail)
+mailFromParams params = do
+  now <- liftIO getCurrentTime
+  let m =
+        Mail <$> lookup "fromAddress" params <*> lookup "toAddress" params <*>
+        lookup "subject" params <*>
+        lookup "body" params <*> Just now
+  pure m
 
 
-eitherFlip :: Either a b -> Either b a
-eitherFlip = either Right Left
+-- | Modify the default spock config by setting our custom error handler
+mailsiftConfig :: SpockCfg conn sess st -> SpockCfg conn sess st
+mailsiftConfig cfg = cfg { spc_errorHandler = errorHandler }
 
 
 -- | Load the config and start the application
@@ -308,19 +216,3 @@ run = do
   spockCfg <- mailsiftConfig <$> defaultSpockCfg () (PCPool pool) appState
   _ <- doMigration
   runSpock port (spock spockCfg $ middleware logger >> app)
-
-
-selectFilter :: (IsString a, Eq a) => [(a, Text)] -> [Filter Mail]
-selectFilter = mapMaybe checkF
-
-
-checkF :: (Eq a, IsString a) => (a, Text) -> Maybe (Filter Mail)
-checkF (key, value)
-  | key == "subject" = Just (like E.MailSubject value)
-  | key == "from" = Just (like E.MailFromAddress value)
-  | key == "to" = Just (like E.MailToAddress value)
-  | otherwise = Nothing
-
-
-like :: E.EntityField record Text -> Text -> Filter record
-like field val = Filter field (Left $ T.concat ["%", val, "%"]) (BackendSpecificFilter "ilike")
