@@ -35,9 +35,8 @@ decodeParams
   => Charset
   -> [(a, ByteString)]
   -> [Either ConversionError (a, ByteString)]
-decodeParams charset params = for params $ \param -> uncurry flippedDecode param
+decodeParams charset = map (uncurry flippedDecode)
   where
-    for = flip map
     doConversion key value fromEncoding =
       case convertStrictly fromEncoding "UTF-8" (BL.fromStrict value) of
         Left b                -> Left (key, BL.toStrict b)
@@ -48,10 +47,10 @@ decodeParams charset params = for params $ \param -> uncurry flippedDecode param
 
     decode :: (IsString a, Eq a) => a -> ByteString -> Either (a, ByteString) ConversionError
     decode key value
-      | key == "to" = doConversion key value (toCharset charset)
+      | key == "toAddress" = doConversion key value (toCharset charset)
       | key == "html" = doConversion key value (htmlCharset charset)
       | key == "subject" = doConversion key value (subjectCharset charset)
-      | key == "from" = doConversion key value (fromCharset charset)
+      | key == "fromAddress" = doConversion key value (fromCharset charset)
       | key == "text" = doConversion key value (textCharset charset)
       | otherwise = Left (key, value)
 

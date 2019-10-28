@@ -8,7 +8,14 @@ import           GHC.Generics (Generic)
 
 
 defaultCharset :: Charset
-defaultCharset = Charset {toCharset = "UTF-8", htmlCharset = "iso-8859-1", subjectCharset = "UTF-8", fromCharset = "UTF-8", textCharset = "iso-8859-1"}
+defaultCharset =
+  Charset
+  { toCharset = "UTF-8"
+  , htmlCharset = "iso-8859-1"
+  , subjectCharset = "UTF-8"
+  , fromCharset = "UTF-8"
+  , textCharset = "iso-8859-1"
+  }
 
 
 data Charset = Charset

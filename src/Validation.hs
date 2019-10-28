@@ -58,8 +58,8 @@ mergeValidationResults (Right ()) (Right ()) = Right ()
 
 validateParams :: (Eq a, Data.String.IsString a) => [(a, Text)] -> Either [ErrorInfo] ()
 validateParams params = do
-  fromAddress <- note [MissingParam "from"] $ lookup "from" params
-  toAddress <- note [MissingParam "to"] $ lookup "to" params
+  fromAddress <- note [MissingParam "fromAddress"] $ lookup "fromAddress" params
+  toAddress <- note [MissingParam "toAddress"] $ lookup "toAddress" params
   let x = emailValidator fromAddress
   let y = emailValidator toAddress
   mergeValidationResults x y

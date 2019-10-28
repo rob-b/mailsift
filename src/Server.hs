@@ -171,21 +171,24 @@ validateParams params = do
   case encodedParams of
     Left conversionError -> do
       let failure = show . reportConversionError $ conversionError
-      let charsets = filter (\(a, _) -> a == "charsets") params
+      let charsets = lookup "charsets" params
       logErrorN . T.pack . show $ charsets
-      let headers = filter (\(a, _) -> a == "headers") params
+      let headers = lookup "headers" params
       logErrorN . T.pack . show $ headers
       logErrorN $ "Cannot parse POST params: " <> T.pack failure
       throwError $ ErrorJson $ String $ T.pack failure
     Right params' -> do
       case Validation.validateParams params' of
         Left errs -> do
-          -- logErrorN . T.pack . show $ params'
           logErrorN . T.pack . show $ errs
           throwError . ErrorJson $ Validation.errorInfoToValue errs
         Right _ -> do
-          (Just m) <- liftIO $ mailFromParams params'
-          pure m
+          mailM <- liftIO $ mailFromParams params'
+          case mailM of
+            Nothing -> do
+              logErrorN $ "Cannot create mail from valid params: " <> T.pack (show (map fst params'))
+              throwError $ ErrorJson $ String "Cannot create mail"
+            Just m  -> pure m
 
 
 mailFromParams :: (MonadIO m) => [(Text, Text)] -> m (Maybe Mail)
@@ -194,7 +197,7 @@ mailFromParams params = do
   let m =
         Mail <$> lookup "fromAddress" params <*> lookup "toAddress" params <*>
         lookup "subject" params <*>
-        lookup "body" params <*> Just now
+        lookup "text" params <*> Just now
   pure m
 
 
