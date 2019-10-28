@@ -180,7 +180,7 @@ validateParams params = do
     Right params' -> do
       case Validation.validateParams params' of
         Left errs -> do
-          logErrorN . T.pack . show $ params'
+          -- logErrorN . T.pack . show $ params'
           logErrorN . T.pack . show $ errs
           throwError . ErrorJson $ Validation.errorInfoToValue errs
         Right _ -> do
