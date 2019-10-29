@@ -3,14 +3,12 @@
 module Validation where
 
 import           Control.Monad.Validate (MonadValidate, dispute, runValidate)
-import           Data.Aeson             (ToJSON, Value (Array), decode, encode, object, toJSON,
-                                         (.=))
+import           Data.Aeson             (ToJSON, Value, object, toJSON, (.=))
 import           Data.Bool              (bool)
 import           Data.Maybe             (isJust)
 import           Data.String            (IsString)
 import           Data.Text              (Text)
 import qualified Data.Text              as T
-import qualified Data.Vector            as V
 
 
 data ErrorInfo
@@ -28,17 +26,6 @@ instance ToJSON ErrorInfo  where
   toJSON (SilentInvalidEmail reason) = object ["reason" .= reason]
   toJSON (MissingParam reason)       = object ["reason" .= reason]
   toJSON (InvalidParams reason)      = object ["reason" .= reason]
-
-
-errorInfoToValue :: [ErrorInfo] -> Value
-errorInfoToValue ei = Array . V.fromList $ fmap wasteful ei
-
-
-wasteful :: ErrorInfo -> Value
-wasteful o =
-  case decode (encode o) of
-    Just v  -> v
-    Nothing -> error "Unexpected decode error"
 
 
 note :: a -> Maybe b -> Either a b
