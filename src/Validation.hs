@@ -3,7 +3,7 @@
 module Validation where
 
 import           Control.Monad.Validate (MonadValidate, dispute, runValidate)
-import           Data.Aeson             (ToJSON, Value, object, toJSON, (.=))
+import           Data.Aeson             (ToJSON, Value (String), object, toJSON, (.=))
 import           Data.Bool              (bool)
 import           Data.Maybe             (isJust)
 import           Data.String            (IsString)
@@ -20,12 +20,13 @@ data ErrorInfo
   deriving (Show)
 
 
-instance ToJSON ErrorInfo  where
-  toJSON (JsonBadValue reason val)   = object ["reason" .= reason, "value" .= val]
-  toJSON (InvalidEmail reason)       = object ["reason" .= reason]
-  toJSON (SilentInvalidEmail reason) = object ["reason" .= reason]
-  toJSON (MissingParam reason)       = object ["reason" .= reason]
-  toJSON (InvalidParams reason)      = object ["reason" .= reason]
+instance ToJSON ErrorInfo where
+  toJSON (JsonBadValue reason val) =
+    object ["reason" .= reason, "value" .= val, "type" .= String "json_bad_value"]
+  toJSON (InvalidEmail reason) = object ["reason" .= reason, "type" .= String "invalid_email"]
+  toJSON (SilentInvalidEmail reason) = object ["reason" .= reason, "type" .= String "invalid_email"]
+  toJSON (MissingParam reason) = object ["reason" .= reason, "type" .= String "missing_param"]
+  toJSON (InvalidParams reason) = object ["reason" .= reason, "type" .= String "invalid_params"]
 
 
 note :: a -> Maybe b -> Either a b

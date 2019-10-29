@@ -136,25 +136,28 @@ parseEmailHook = do
       appState <- getState
       pool <- getSpockPool
       emailKey <- runSQLAction pool (\conn -> run2 conn $ insert email)
-      _ <- liftIO $ uploadFiles pool (appStateQueue appState) (appStateAWSEnv appState) emailKey filesMap
+      _ <-
+        liftIO $
+        uploadFiles pool (appStateQueue appState) (appStateAWSEnv appState) emailKey filesMap
       setStatus status201
       json email
-    Left (Validation.SilentInvalidEmail reason) -> do
-      -- We don't respond with an error code to certain kinds of invalid email
-      setStatus status200
-      json (Object $ fromList ["error" .= reason])
-    Left err -> do
-      _ <- liftIO $ runStdoutLoggingT (logErrorN . T.pack . show $ err)
-      setStatus status422
-      json err
+    Left errs -> do
+      if all isLoggable errs
+        then do
+          _ <- liftIO $ runStdoutLoggingT (logErrorN . T.pack . show $ errs)
+          setStatus status422
+        else setStatus status200
+      json errs
+
+
+isLoggable :: Validation.ErrorInfo -> Bool
+isLoggable (Validation.SilentInvalidEmail _) = False
+isLoggable _                                 = True
 
 
 -- | Json helpers
 dataWrapper :: ToJSON v => v -> Value
 dataWrapper a = object ["data" .= a]
-
-
-newtype ErrorJson = ErrorJson Value
 
 
 loadSampleCharset :: IO (Maybe Charset)
@@ -167,7 +170,8 @@ mkCharsetFromParams params = decodeStrict =<< lookup "charsets" params
 
 
 -- | validate POST params and convert to Mail instance if possible
-validateParams :: [(B.ByteString, B.ByteString)] -> ExceptT Validation.ErrorInfo (LoggingT IO) Mail
+validateParams ::
+     [(B.ByteString, B.ByteString)] -> ExceptT [Validation.ErrorInfo] (LoggingT IO) Mail
 validateParams params = do
   let charset = fromMaybe defaultCharset $ mkCharsetFromParams params
   let encodedParams = sequence $ paramsConversion charset params
@@ -179,18 +183,19 @@ validateParams params = do
       let headers = lookup "headers" params
       logErrorN . T.pack . show $ headers
       logErrorN $ "Cannot parse POST params: " <> T.pack failure
-      throwError $ Validation.InvalidParams $ T.pack failure
+      throwError [Validation.InvalidParams $ T.pack failure]
     Right params' -> do
       case Validation.validateParams params' of
         Left errs -> do
-          throwError $ head errs
+          throwError errs
         Right _ -> do
           mailM <- liftIO $ mailFromParams params'
           case mailM of
             Nothing -> do
-              logErrorN $ "Cannot create mail from valid params: " <> T.pack (show (map fst params'))
-              throwError $ Validation.InvalidParams $ "Cannot create mail"
-            Just m  -> pure m
+              logErrorN $
+                "Cannot create mail from valid params: " <> T.pack (show (map fst params'))
+              throwError [Validation.InvalidParams "Cannot create mail"]
+            Just m -> pure m
 
 
 mailFromParams :: (MonadIO m) => [(Text, Text)] -> m (Maybe Mail)
