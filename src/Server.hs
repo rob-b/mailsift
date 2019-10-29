@@ -143,18 +143,10 @@ parseEmailHook = do
       -- We don't respond with an error code to certain kinds of invalid email
       setStatus status200
       json (Object $ fromList ["error" .= reason])
-    Left (Validation.JsonBadValue reason value) -> do
+    Left err -> do
+      _ <- liftIO $ runStdoutLoggingT (logErrorN . T.pack . show $ err)
       setStatus status422
-      json (Object $ fromList ["error" .= value, "reason" .= reason])
-    Left (Validation.InvalidEmail reason) -> do
-      setStatus status422
-      json (Object $ fromList ["error" .= reason])
-    Left (Validation.InvalidParams reason) -> do
-      setStatus status422
-      json (Object $ fromList ["error" .= reason])
-    Left (Validation.MissingParam reason) -> do
-      setStatus status422
-      json (Object $ fromList ["error" .= reason])
+      json err
 
 
 -- | Json helpers
@@ -191,8 +183,7 @@ validateParams params = do
     Right params' -> do
       case Validation.validateParams params' of
         Left errs -> do
-          logErrorN . T.pack . show $ errs
-          throwError $ (head errs)
+          throwError $ head errs
         Right _ -> do
           mailM <- liftIO $ mailFromParams params'
           case mailM of
