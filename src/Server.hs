@@ -25,11 +25,10 @@ import           Config
 import           Control.Monad.Except        (ExceptT, runExceptT, throwError)
 import           Control.Monad.IO.Class      (MonadIO, liftIO)
 import           Control.Monad.Logger        (LoggingT, logErrorN, runStdoutLoggingT)
-import           Control.Monad.RWS.Strict    (join)
 import           Data.Aeson                  (ToJSON, Value(Object), decodeStrict, object, (.=))
 import qualified Data.ByteString             as B
 import           Data.HVect                  (HVect((:&:), HNil), ListContains)
-import           Data.Maybe                  (fromMaybe, mapMaybe)
+import           Data.Maybe                  (fromMaybe, mapMaybe, maybeToList)
 import           Data.Monoid                 ((<>))
 import           Data.String                 (IsString)
 import           Data.Text                   (Text)
@@ -42,7 +41,7 @@ import           Database.Persist
     , PersistFilter(BackendSpecificFilter)
     , SelectOpt(Desc, LimitTo)
     , selectList
-    , (>.)
+    , (<.)
     )
 import           Database.Persist.Postgresql (SqlBackend)
 import           Database.Persist.Sql        (insert, toSqlKey)
@@ -121,24 +120,23 @@ like field val = Filter field (Left constructed) ilike
     ilike = BackendSpecificFilter "ilike"
 
 
-getAfterValue :: (IsString a, Eq a) => [(a, Text)] -> [Filter Mail]
-getAfterValue = mapMaybe getAfterValue'
-  where
-    getAfterValue' :: (Eq a, IsString a) => (a, Text) -> Maybe (Filter Mail)
-    getAfterValue' (key, value)
-      | key == "after" = (\x -> Just (E.MailId >. toSqlKey x)) =<< readTextMaybe value
-      | otherwise = Nothing
+getAfterValue :: (IsString a, Eq a) => [(a, Text)] -> Maybe (Filter Mail)
+getAfterValue params =
+  let afterM = lookup "after" params
+      afterM' = readTextMaybe =<< afterM
+      foo x = E.MailId <. toSqlKey x
+  in foo <$> afterM'
 
 
 readTextMaybe :: Read a => Text -> Maybe a
 readTextMaybe = readMaybe . T.unpack
 
 
-getLimitValue :: (Eq a, IsString a) => [(a, Text)] -> SelectOpt record
+getLimitValue :: (Eq a, IsString a) => [(a, Text)] -> Maybe (SelectOpt record)
 getLimitValue params =
-  let limitText = lookup "limit" params
-      limitM = join $ readTextMaybe <$> limitText
-  in maybe (LimitTo 20) LimitTo limitM
+  let limitM = lookup "limit" params
+      limitM' = readTextMaybe =<< limitM
+  in LimitTo <$> limitM'
 
 
 -- | Routing
@@ -183,9 +181,9 @@ emailList = do
   let searchFilters = getSearchFilters params
 
   -- if query params for pagination are provided, set the offset in the form of a where clause
-  let afterValue = getAfterValue params
+  let afterValue = maybeToList $ getAfterValue params
 
-  let limit = getLimitValue params
+  let limit = fromMaybe (LimitTo 20) $ getLimitValue params
 
   res <- runSQL $ selectList (searchFilters <> afterValue) [Desc E.MailId, limit]
   json $ dataWrapper res
@@ -251,7 +249,7 @@ validateParams params = do
       throwError [Validation.InvalidParams $ T.pack failure]
     Right params' -> do
       case Validation.validateParams params' of
-        Left errs -> do
+        Left errs ->
           throwError errs
         Right _ -> do
           mailM <- liftIO $ mailFromParams params'
