@@ -11,15 +11,24 @@ module Server where
 
 
 import           Codec.Text.IConv            (reportConversionError)
-import           Config                      (AppState, appStateAWSEnv, appStateQueue,
-                                              appStateToken, confAppLogger, confAppState, confPool,
-                                              confPort, getConfig)
+import           Config
+    ( AppState
+    , appStateAWSEnv
+    , appStateQueue
+    , appStateToken
+    , confAppLogger
+    , confAppState
+    , confPool
+    , confPort
+    , getConfig
+    )
 import           Control.Monad.Except        (ExceptT, runExceptT, throwError)
 import           Control.Monad.IO.Class      (MonadIO, liftIO)
 import           Control.Monad.Logger        (LoggingT, logErrorN, runStdoutLoggingT)
-import           Data.Aeson                  (ToJSON, Value (Object), decodeStrict, object, (.=))
+import           Control.Monad.RWS.Strict    (join)
+import           Data.Aeson                  (ToJSON, Value(Object), decodeStrict, object, (.=))
 import qualified Data.ByteString             as B
-import           Data.HVect                  (HVect ((:&:), HNil), ListContains)
+import           Data.HVect                  (HVect((:&:), HNil), ListContains)
 import           Data.Maybe                  (fromMaybe, mapMaybe)
 import           Data.Monoid                 ((<>))
 import           Data.String                 (IsString)
@@ -28,30 +37,51 @@ import qualified Data.Text                   as T
 import           Data.Text.Encoding          (decodeUtf8)
 import           Data.Time.Clock             (getCurrentTime)
 import qualified Data.Vector                 as V
-import           Database.Persist            (Filter (Filter),
-                                              PersistFilter (BackendSpecificFilter),
-                                              SelectOpt (Desc, LimitTo), selectList)
+import           Database.Persist
+    ( Filter(Filter)
+    , PersistFilter(BackendSpecificFilter)
+    , SelectOpt(Desc, LimitTo)
+    , selectList
+    , (>.)
+    )
 import           Database.Persist.Postgresql (SqlBackend)
-import           Database.Persist.Sql        (insert)
+import           Database.Persist.Sql        (insert, toSqlKey)
 import           Encoding                    (paramsConversion)
-import           Entities                    (Mail (Mail), run2, runSQL, runSQLAction)
+import           Entities                    (Mail(Mail), run2, runSQL, runSQLAction)
 import qualified Entities                    as E
 import           GHC.Exts                    (fromList)
 import           Migration                   (doMigration)
-import           Network.HTTP.Types          (Status (Status))
+import           Network.HTTP.Types          (Status(Status))
 import           Network.HTTP.Types.Status   (status200, status201, status401, status422)
-import           Network.Wai.Parse           (defaultParseRequestBodyOptions, lbsBackEnd,
-                                              parseRequestBodyEx)
+import           Network.Wai.Parse
+    (defaultParseRequestBodyOptions, lbsBackEnd, parseRequestBodyEx)
 import qualified Queue
+import           Text.Read                   (readMaybe)
 import           Types                       (Charset, defaultCharset)
 import           Upload                      (uploadFiles)
-import qualified Validation                  as Validation
-import           Web.Spock                   (ActionCtxT, SpockActionCtx, SpockM, get, getContext,
-                                              getSpockPool, getState, header, json, middleware,
-                                              paramsGet, post, prehook, request, root, runSpock,
-                                              setStatus, spock)
-import           Web.Spock.Config            (PoolOrConn (PCPool), SpockCfg, defaultSpockCfg,
-                                              spc_errorHandler)
+import qualified Validation
+import           Web.Spock
+    ( ActionCtxT
+    , SpockActionCtx
+    , SpockM
+    , get
+    , getContext
+    , getSpockPool
+    , getState
+    , header
+    , json
+    , middleware
+    , paramsGet
+    , post
+    , prehook
+    , request
+    , root
+    , runSpock
+    , setStatus
+    , spock
+    )
+import           Web.Spock.Config
+    (PoolOrConn(PCPool), SpockCfg, defaultSpockCfg, spc_errorHandler)
 
 
 type Api = SpockM SqlBackend () AppState ()
@@ -69,8 +99,8 @@ errorHandler status = json $ prepareError status
 
 
 -- | Query helpers
-selectFilter :: (IsString a, Eq a) => [(a, Text)] -> [Filter Mail]
-selectFilter = mapMaybe checkF
+getSearchFilters :: (IsString a, Eq a) => [(a, Text)] -> [Filter Mail]
+getSearchFilters = mapMaybe checkF
 
 
 checkF :: (Eq a, IsString a) => (a, Text) -> Maybe (Filter Mail)
@@ -82,7 +112,33 @@ checkF (key, value)
 
 
 like :: E.EntityField record Text -> Text -> Filter record
-like field val = Filter field (Left $ T.concat ["%", val, "%"]) (BackendSpecificFilter "ilike")
+like field val = Filter field (Left constructed) ilike
+  where
+    constructed :: Text
+    constructed = T.concat ["%", val, "%"]
+
+    ilike :: PersistFilter
+    ilike = BackendSpecificFilter "ilike"
+
+
+getAfterValue :: (IsString a, Eq a) => [(a, Text)] -> [Filter Mail]
+getAfterValue = mapMaybe getAfterValue'
+  where
+    getAfterValue' :: (Eq a, IsString a) => (a, Text) -> Maybe (Filter Mail)
+    getAfterValue' (key, value)
+      | key == "after" = (\x -> Just (E.MailId >. toSqlKey x)) =<< readTextMaybe value
+      | otherwise = Nothing
+
+
+readTextMaybe :: Read a => Text -> Maybe a
+readTextMaybe = readMaybe . T.unpack
+
+
+getLimitValue :: (Eq a, IsString a) => [(a, Text)] -> SelectOpt record
+getLimitValue params =
+  let limitText = lookup "limit" params
+      limitM = join $ readTextMaybe <$> limitText
+  in maybe (LimitTo 20) LimitTo limitM
 
 
 -- | Routing
@@ -122,7 +178,16 @@ authCheck (Just x) y = x == "Bearer " <> T.pack y
 emailList :: ListContains n User xs => AuthedApiAction (HVect xs) a
 emailList = do
   params <- paramsGet
-  res <- runSQL $ selectList (selectFilter params) [Desc E.MailId, LimitTo 20]
+
+  -- if query params for filtering the results are provided, build a list of filters
+  let searchFilters = getSearchFilters params
+
+  -- if query params for pagination are provided, set the offset in the form of a where clause
+  let afterValue = getAfterValue params
+
+  let limit = getLimitValue params
+
+  res <- runSQL $ selectList (searchFilters <> afterValue) [Desc E.MailId, limit]
   json $ dataWrapper res
 
 
